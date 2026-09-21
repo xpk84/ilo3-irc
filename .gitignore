@@ -1,0 +1,9 @@
+# HP code — never commit
+*.jar
+
+# build artifacts
+build/
+*.class
+
+# macOS
+.DS_Store
