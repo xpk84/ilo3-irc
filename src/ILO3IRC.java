@@ -1,7 +1,7 @@
 /*
  * ilo3-irc — native Java 8 host for the HP iLO 3 console applet.
  * MIT licensed launcher; HP code is downloaded from the authenticated controller,
- * never bundled. See README for independent certificate-pin verification.
+ * never bundled. See README for first-use trust and optional independent pin verification.
  */
 import javax.swing.*;
 import javax.swing.event.*;
@@ -17,13 +17,13 @@ import java.util.prefs.Preferences;
 import java.util.regex.*;
 
 public final class ILO3IRC {
-    static final String VERSION = "1.0.1";
+    static final String VERSION = "1.1.0";
     private static final Preferences SETTINGS = Preferences.userRoot().node("io/github/xpk84/ilo3irc");
 
     public static void main(String[] args) {
         try {
             if (args.length==1 && ("--help".equals(args[0]) || "-h".equals(args[0]))) {
-                System.out.println("Usage: ilo3-irc.sh [HOST]\n  --check: validate runtime/build (no GUI/network)\n  --version\n  --tls-check HOST SHA256 [--legacy-tls]: verify pinned HTTPS without login\nFirst connection requires an independently verified SHA-256 certificate fingerprint.");
+                System.out.println("Usage: ilo3-irc.sh [HOST]\n  --check: validate runtime/build (no GUI/network)\n  --version\n  --tls-check HOST SHA256 [--legacy-tls]: verify pinned HTTPS without login\nFirst connection asks to accept and remember the certificate (TOFU); an independently verified fingerprint is optional.");
                 return;
             }
             if(args.length==1 && "--version".equals(args[0])) {System.out.println("ilo3-irc "+VERSION);return;}
@@ -37,9 +37,11 @@ public final class ILO3IRC {
             }
             if(args.length>1 || (args.length==1 && args[0].startsWith("-"))) throw new IllegalArgumentException("Unknown arguments; use --help");
             String initial=args.length==1 ? IloSupport.validateHost(args[0]) : SETTINGS.get("lastHost","");
-            Credentials credentials=credentials(initial);
-            if(credentials==null) return;
-            try { connect(credentials); }
+            KnownControllers registry=new KnownControllers(registryPath());
+            migrateLegacyPin(registry,SETTINGS);
+            ConnectionDialog.Request credentials=ConnectionDialog.open(registry,initial);
+            if(credentials==null) {System.exit(0);return;}
+            try { connect(credentials,registry); }
             finally { Arrays.fill(credentials.password,'\0'); }
         } catch(Exception ex) {
             String message=ex.getMessage();
@@ -63,69 +65,35 @@ public final class ILO3IRC {
         }
     }
 
-    private static final class Credentials {
-        final String host,user,pin; final char[] password; final boolean legacy;
-        Credentials(String h,String u,char[] p,String pin,boolean legacy) {host=h;user=u;password=p;this.pin=pin;this.legacy=legacy;}
+    static Path registryPath() {
+        String override=System.getProperty("ilo3.registry.path");
+        return override==null ? Paths.get(System.getProperty("user.home"),"Library","Application Support","ilo3-irc","known-controllers.properties") : Paths.get(override);
     }
 
-    private static Credentials credentials(String initial) throws Exception {
-        final Credentials[] result=new Credentials[1];
-        SwingUtilities.invokeAndWait(() -> {
-            JTextField host=new JTextField(initial,24);
-            JTextField user=new JTextField(24);
-            JPasswordField pass=new JPasswordField(24);
-            JTextField fingerprint=new JTextField(SETTINGS.get("pin_"+key(initial),""),48);
-            JCheckBox legacy=new JCheckBox("Allow legacy TLS 1.0/1.1 for this controller",SETTINGS.getBoolean("legacy_"+key(initial),false));
-            JCheckBox verified=new JCheckBox("I independently verified this certificate fingerprint",!fingerprint.getText().isEmpty());
-            JPanel fields=new JPanel(new GridLayout(4,2,8,8));
-            fields.add(new JLabel("iLO hostname / IP:"));fields.add(host);
-            fields.add(new JLabel("SHA-256 certificate fingerprint:"));fields.add(fingerprint);
-            fields.add(new JLabel("Username:"));fields.add(user);
-            fields.add(new JLabel("Password:"));fields.add(pass);
-            JPanel panel=new JPanel();panel.setLayout(new BoxLayout(panel,BoxLayout.Y_AXIS));
-            panel.add(new JLabel("<html>Use a fingerprint from a separately trusted administrator/certificate export.<br>Do not trust a fingerprint merely because this connection presented it.</html>"));
-            panel.add(Box.createVerticalStrut(10));panel.add(fields);panel.add(verified);panel.add(legacy);
-            panel.add(new JLabel("Only host, verified pin and TLS choice are saved; never your login/password."));
-            DocumentListener reset=new DocumentListener() {
-                public void insertUpdate(DocumentEvent e){verified.setSelected(false);}
-                public void removeUpdate(DocumentEvent e){verified.setSelected(false);}
-                public void changedUpdate(DocumentEvent e){verified.setSelected(false);}
-            };
-            host.getDocument().addDocumentListener(reset);fingerprint.getDocument().addDocumentListener(reset);
-            while(true) {
-                int choice=JOptionPane.showConfirmDialog(null,panel,"iLO 3 Console",JOptionPane.OK_CANCEL_OPTION,JOptionPane.PLAIN_MESSAGE);
-                if(choice!=JOptionPane.OK_OPTION) {pass.setText("");return;}
-                char[] password=pass.getPassword();
-                try {
-                    String authority=IloSupport.validateHost(host.getText().trim());
-                    SecureIlo.parseFingerprint(fingerprint.getText());
-                    if(!verified.isSelected()) throw new IllegalArgumentException("Verify the fingerprint independently and confirm the checkbox before sending credentials");
-                    if(user.getText().trim().isEmpty() || password.length==0) throw new IllegalArgumentException("Username and password are required");
-                    String pin=fingerprint.getText().replace(":","").replaceAll("\\s","").toUpperCase(Locale.ROOT);
-                    result[0]=new Credentials(authority,user.getText().trim(),password,pin,legacy.isSelected());
-                    pass.setText(""); return;
-                } catch(Exception ex) {
-                    Arrays.fill(password,'\0');
-                    JOptionPane.showMessageDialog(null,ex.getMessage(),"Check connection settings",JOptionPane.ERROR_MESSAGE);
-                }
-            }
-        });
-        return result[0];
+    // Eagerly populate the known last controller; every other host is imported lazily.
+    // Never honor the old global done flag: hashed preferences also contain other pins.
+    static void migrateLegacyPin(KnownControllers registry,Preferences settings) throws IOException {
+        String oldHost=settings.get("lastHost","");
+        if(!oldHost.isEmpty()) LegacyTrustMigration.migrate(registry,settings,oldHost);
     }
 
-    private static String key(String value) {
-        try {
-            StringBuilder s=new StringBuilder();
-            for(byte b:MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8))) s.append(String.format(Locale.ROOT,"%02x",b & 255));
-            return s.toString();
-        } catch(java.security.NoSuchAlgorithmException ex) {throw new IllegalStateException(ex);}
+    // ConnectionDialog callback: invoke on the RAW host before observation/authorization.
+    static void migrateLegacyPin(KnownControllers registry,String host) throws IOException {
+        LegacyTrustMigration.migrate(registry,SETTINGS,host);
+    }
+
+    // Removal callback: persist the tombstone BEFORE registry.remove; abort on failure.
+    static void forgetLegacyPin(String host) throws IOException {
+        LegacyTrustMigration.forget(SETTINGS,host);
     }
 
     static String loginBody(String user,String password) {
         return "{\"method\":\"login\",\"user_login\":"+IloSupport.jsonString(user)+",\"password\":"+IloSupport.jsonString(password)+"}";
     }
 
-    private static void connect(Credentials c) throws Exception {
+    private static void connect(ConnectionDialog.Request c,KnownControllers registry) throws Exception {
+        KnownControllers.Entry trusted=registry.find(c.host);
+        if(trusted==null || !trusted.fingerprint.equals(c.pin)) throw new IOException("Controller trust changed before login; reconnect and review the registry");
         SecureIlo transport=new SecureIlo(c.host,c.pin,c.legacy);
         String body=loginBody(c.user,new String(c.password));
         String response;
@@ -134,7 +102,8 @@ public final class ILO3IRC {
         Matcher session=Pattern.compile("\"session_key\"\\s*:\\s*\"([0-9a-fA-F]{16,128})\"").matcher(response);
         if(!session.find()) throw new IOException("Login rejected or unexpected iLO response; check account permissions");
         String sessionKey=session.group(1);
-        SETTINGS.put("lastHost",c.host);SETTINGS.put("pin_"+key(c.host),c.pin);SETTINGS.putBoolean("legacy_"+key(c.host),c.legacy);
+        registry.markConnected(c.host,c.pin,System.currentTimeMillis(),c.legacy);
+        SETTINGS.put("lastHost",c.host);
         // Fetch applet metadata with authenticated TLS. Session response is never logged.
         String html=new String(transport.get("/html/java_irc.html",2*1024*1024),StandardCharsets.UTF_8);
         String jarPath=IloSupport.jarPath(html);

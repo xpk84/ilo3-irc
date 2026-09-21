@@ -13,7 +13,7 @@ HELP=$("${JAVA[@]}" ILO3IRC --help)
 [[ "$HELP" == *"Usage:"* && "$HELP" == *"independently verified"* ]]
 printf '%s\n' 'PASS --help without GUI/network'
 VERSION=$("${JAVA[@]}" ILO3IRC --version)
-[[ "$VERSION" == "ilo3-irc 1.0.1" ]]
+[[ "$VERSION" == "ilo3-irc 1.1.0" ]]
 printf '%s\n' 'PASS --version without GUI/network'
 CHECK=$("${JAVA[@]}" ILO3IRC --check)
 [[ "$CHECK" == *"runtime/classes OK"* ]]

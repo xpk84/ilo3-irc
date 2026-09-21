@@ -78,7 +78,7 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
     <key>CFBundleDisplayName</key><string>iLO 3 Console</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleIconFile</key><string>app-icon</string>
-    <key>CFBundleShortVersionString</key><string>1.0.1</string>
+    <key>CFBundleShortVersionString</key><string>1.1.0</string>
     <key>CFBundleVersion</key><string>1</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
 </dict>

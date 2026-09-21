@@ -60,7 +60,7 @@ For a nonstandard JDK location use `export JDK8="/your/jdk8/Contents/Home"`.
 
 - iLO 3 serving `/html/java_irc.html` and an `intgapp*.jar` applet.
 - An account with remote-console permission and the server's required license.
-- A separately verified **SHA-256 fingerprint of the controller's TLS certificate**.
+- Explicit first-use certificate acceptance; independent fingerprint verification is optional.
 - Network access to HTTPS (usually TCP 443) and the controller's KVM service
   (TCP 17990 on the tested device). Virtual-media port 17988 is not the KVM port.
 - A trusted management network / VPN. Do not expose an old iLO to the internet.
@@ -89,40 +89,62 @@ mkdir -p build
 "$JDK8/bin/java" -cp build ILO3IRC
 ```
 
-### First connection: certificate verification
+### First connection: accept and remember (TOFU)
 
-The dialog asks for the controller, fingerprint, username and password.
-**Do not enter a password in the terminal command line or an issue report.**
+Enter the controller address, username and password in the app. **Never enter
+passwords in terminal arguments or issue reports.** Before sending credentials
+or downloading HP code, the launcher performs only a TLS handshake and shows
+an unknown controller's certificate, validity dates and SHA-256 fingerprint.
+Choose **Accept and remember** or **Cancel** (the safe default).
 
-Obtain the fingerprint through a separately trusted administrator, a previously
-verified certificate export or another independently authenticated management
-channel. For example, calculate the fingerprint of an already trusted PEM export:
+This is trust on first use (TOFU): it detects later certificate changes, but
+**cannot exclude interception of the first connection**. If uncertain, cancel
+and compare the fingerprint through a separately trusted administrator or
+previously verified certificate export. The optional advanced fingerprint field
+blocks a mismatch before acceptance. For an already trusted PEM export:
 
 ```bash
 openssl x509 -in controller-certificate.pem -noout -fingerprint -sha256
 ```
 
-Paste only the 64 hexadecimal digits (colon separators are accepted). Confirm
-that you independently verified it. **Copying a certificate from an unverified
-connection and trusting it immediately does not protect against MITM.** The app
-never silently learns/trusts a certificate from the network.
+The table below the form lists known controllers, aliases, saved trust and the
+last successful login. Selecting a row fills the address and TLS choice. You can
+view certificate details, rename entries or remove their trust; credentials are
+not stored. A matching saved certificate needs no repeat confirmation.
 
-For older controllers, explicitly select **Allow legacy TLS 1.0/1.1**.
-Modern TLS remains the default. This changes only this Java process and retains
-other JDK algorithm restrictions; installed `java.security` files are untouched.
+A changed certificate **blocks connection** and displays old/new fingerprints.
+After verifying the reason for rotation, select the saved server, open its
+certificate details and explicitly choose **Replace certificate**. Replacement
+does not log in; connect again separately. There is no silent replacement.
 
-You can test pinned HTTPS without sending credentials:
+For older controllers, explicitly enable **legacy TLS 1.0/1.1**. Modern TLS is
+the default; installed JDK security files remain untouched. Certificate observation
+runs in a disposable Java subprocess, so selecting legacy TLS after a failed
+modern attempt works without restarting the dialog. No credentials go to this
+subprocess. The authenticated connection still checks the accepted exact pin.
+
+The registry lives at:
+
+```text
+~/Library/Application Support/ilo3-irc/known-controllers.properties
+```
+
+Writes are atomic and process-locked, with private POSIX permissions. Corrupt
+registries fail closed, rather than being silently reset. Previously verified
+1.0.1 pins are imported for the last controller and lazily for other entered
+addresses before observation. Old hashed keys cannot reveal arbitrary historical
+spellings: if a controller was entered with unusual letter case, enter that same
+spelling to recover its pin. Supported canonical/default-port aliases are checked;
+conflicting legacy pins fail closed. Removing trust writes a persistent per-host
+tombstone so the old pin is not imported again. Passwords are not stored.
+
+Pinned HTTPS can also be checked without credentials:
 
 ```bash
 ./ilo3-irc.sh --tls-check 10.0.0.42 YOUR_VERIFIED_SHA256 --legacy-tls
 ```
 
-Replace the placeholder with your independently verified fingerprint. The
-launcher does not accept it as a literal placeholder. Host, verified fingerprint
-and TLS choice are saved after a successful login using Java user preferences;
-usernames, passwords and session keys are not saved by the launcher. Changing
-host/pin in the dialog requires confirmation again. Certificate rotation requires
-independent verification of the replacement; there is no auto-accept fallback.
+Replace the placeholder with a real independently verified fingerprint.
 
 ## Install a self-contained app bundle
 
@@ -175,9 +197,16 @@ Tests use generated local TLS certificates, synthetic HTML and synthetic ZIP
 fixtures, not real credentials or redistributed HP code:
 
 ```bash
+export JDK8=/Library/Java/JavaVirtualMachines/zulu-8.jdk/Contents/Home
 bash tests/run-support-tests.sh
 bash tests/run-security-tests.sh
 bash tests/run-main-tests.sh
+bash tests/run-trust-tests.sh
+bash tests/run-registry-tests.sh
+bash tests/run-observation-tests.sh
+bash tests/run-tofu-ui-tests.sh
+bash tests/run-migration-tests.sh --launcher
+bash tests/run-probe-tests.sh
 # See docs/test-plan.md for packaging checks and acceptance gates.
 ```
 
