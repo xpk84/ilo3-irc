@@ -1,30 +1,17 @@
 #!/bin/bash
-# ilo3-irc — run the iLO 3 Java IRC on macOS (Apple Silicon native).
-# Usage: ./ilo3-irc.sh [host]
+# Build and launch from source. --check validates without starting the GUI.
 set -euo pipefail
-cd "$(dirname "$0")"
-
-# Locate a Java 8 (applet API required). Prefers ARM64 builds on Apple Silicon.
-J8=""
-for cand in \
-    /Library/Java/JavaVirtualMachines/zulu-8.jdk/Contents/Home/bin/java \
-    "$(command -v java || true)"; do
-    [ -x "$cand" ] || continue
-    if "$cand" -version 2>&1 | head -1 | grep -q '"1.8'; then J8="$cand"; break; fi
-done
-if [ -z "$J8" ]; then
-    echo "Java 8 not found. Install an ARM64 JDK 8, e.g.:"
-    echo "  brew install --cask zulu@8"
-    exit 1
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+source "$ROOT/scripts/runtime.sh"
+source "$ROOT/scripts/build.sh"
+ilo_find_runtime yes
+ilo_build "$ROOT"
+if [ "${1:-}" = --check ]; then
+    [ "$#" -eq 1 ] || { printf 'Usage: %s --check (no other arguments)\n' "$0" >&2; exit 2; }
+    ilo_print_runtime
+    printf 'Classes OK: %s/build\n' "$ROOT"
+    exit 0
 fi
-
-# Build if needed
-if [ ! -f build/ILO3IRC.class ] || [ src/ILO3IRC.java -nt build/ILO3IRC.class ]; then
-    mkdir -p build
-    "$J8"/javac -d build src/ILO3IRC.java
-fi
-
-# Proxies break the raw KVM TCP stream — start clean.
-unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY 2>/dev/null || true
-
-exec "$J8" -cp build ILO3IRC "$@"
+# Proxies must not intercept the raw KVM connection.
+unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY
+exec "$ILO_JAVA" -cp "$ROOT/build" ILO3IRC "$@"

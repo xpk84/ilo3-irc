@@ -3,7 +3,12 @@
 
 # build artifacts
 build/
+dist/
+*.app/
 *.class
+
+# runtime diagnostics (may contain controller details)
+*.log
 
 # macOS
 .DS_Store

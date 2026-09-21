@@ -1,62 +1,48 @@
 # ilo3-irc
 
-**Experimental standalone HP iLO 3 Java Integrated Remote Console launcher for macOS / Apple Silicon.**
+Standalone Java 8 host for the HP iLO 3 Java Integrated Remote Console on
+**macOS / Apple Silicon**. No Wine, Rosetta, browser plugin or OpenWebStart.
 
-The launcher hosts the Java applet served by your own iLO, without a browser,
-Wine, Rosetta or OpenWebStart. A prototype was used successfully on one iLO 3
-with macOS 26 and Azul Zulu JDK 8 for ARM64. Other firmware, macOS versions and
-hardware combinations are not yet verified.
+The controller's HP applet is downloaded at runtime, not distributed in this
+repository. The original prototype displayed a working console on one iLO 3;
+see `docs/status.md` for the repaired candidate's actual validation status.
+Other firmware/macOS combinations are not a compatibility guarantee.
 
-> **Prototype, not a release-ready installer.** A clean-checkout review found
-> defects in the shell runner and `.app` packaging. Use the manual build/run
-> commands below. See [Known issues](#known-issues) before using this tool.
+## Install these prerequisites on macOS
 
-## What to install on macOS first
+| Component | Needed? |
+| --- | --- |
+| **Azul Zulu JDK 8, macOS ARM64 / AArch64** | **Yes** for the tested setup. Includes `java` and `javac`; a JRE alone cannot build the project. Keep Java installed after installing the `.app`. |
+| Git | For cloning; alternatively download the repository ZIP. |
+| Homebrew | Optional installer for Zulu. Azul's own installer works too. |
+| Xcode Command Line Tools | For Apple Git/Homebrew if requested. Full Xcode is not needed. |
+| Wine, Rosetta, OpenWebStart, Temurin | **Not required** for this project. |
 
-| Component | Required? | Purpose |
-| --- | --- | --- |
-| **Azul Zulu JDK 8 for macOS ARM64 / AArch64** | **Yes, for the tested setup** | Includes both `java` and `javac`. The launcher builds from source and hosts a Java applet. A JRE alone is not enough to build it. |
-| Git | Only to clone the repository | Alternatively download and unpack the repository ZIP from GitHub. |
-| Homebrew | Optional | Convenient way to install Zulu JDK 8. The Azul installer is an alternative. |
-| Xcode Command Line Tools | For the Apple Git / Homebrew installation route | Full Xcode is not needed for this Java project. |
-| Wine, Rosetta, OpenWebStart, Temurin 8 | **No** | Not part of this launcher's tested runtime. Do not install them for this project. |
+### Homebrew route
 
-Use **JDK 8**, not a Java 17/21 installation selected by your shell. Those
-runtimes are not the tested configuration. On Apple Silicon, select **ARM64 /
-AArch64**, not x86_64, to avoid depending on Rosetta.
-
-### Option A: install with Homebrew on Apple Silicon
-
-If you do not have Homebrew, follow the [official Homebrew installation
-instructions](https://docs.brew.sh/Installation). If requested, install Apple's
-Command Line Tools with `xcode-select --install`, complete the installer and
-then return to Terminal.
-
-Use the native Homebrew installation, including when your shell runs under Rosetta:
+If needed, install Homebrew following its [official instructions](https://docs.brew.sh/Installation).
+If prompted for Command Line Tools, run `xcode-select --install` and finish the
+installer before continuing. On Apple Silicon use native Homebrew:
 
 ```bash
 arch -arm64 /opt/homebrew/bin/brew install --cask zulu@8
 ```
 
-The [Homebrew `zulu@8` cask](https://formulae.brew.sh/cask/zulu@8) installs the
-**Azul Zulu Java 8 Development Kit**. Installation may request macOS administrator
-authorization; the console itself should not be run with `sudo`.
+See the [official cask](https://formulae.brew.sh/cask/zulu@8). Installation may
+ask for macOS administrator authorization; **do not run the console with sudo**.
 
-### Option B: install without Homebrew
+### Without Homebrew
 
-Download **Zulu JDK 8**, **macOS**, **ARM 64-bit / AArch64** from
-[Azul Downloads](https://www.azul.com/downloads/?package=jdk#zulu), then follow
-[Azul's macOS installation instructions](https://docs.azul.com/core/install/macos).
-Choose the **JDK**, not the JRE. The installer normally places JDK 8 in:
+Download **Zulu JDK 8 / macOS / ARM 64-bit (AArch64)** from
+[Azul](https://www.azul.com/downloads/?package=jdk#zulu) and follow
+[Azul's installation instructions](https://docs.azul.com/core/install/macos).
+Choose **JDK**, not JRE or an Intel build. Its normal location is:
 
 ```text
 /Library/Java/JavaVirtualMachines/zulu-8.jdk/Contents/Home
 ```
 
-If you used an archive or chose another location, adjust `JDK8` in the commands
-below. Changing the system-wide default Java or removing other JDKs is unnecessary.
-
-### Verify Java before starting
+Verify the installation:
 
 ```bash
 JDK8="/Library/Java/JavaVirtualMachines/zulu-8.jdk/Contents/Home"
@@ -65,121 +51,152 @@ JDK8="/Library/Java/JavaVirtualMachines/zulu-8.jdk/Contents/Home"
 file "$JDK8/bin/java"
 ```
 
-Both version commands must report **1.8.0…**; on Apple Silicon, `file` must
-include **arm64**. If the executable is Intel-only, this is not the native setup.
-The review used Zulu 8.96.0.205 / OpenJDK 1.8.0_504, ARM64.
+Both versions must be **1.8.0…** and the executable must include **arm64**.
+The development setup uses Zulu 8.96.0.205 / OpenJDK 1.8.0_504. Other installed
+JDKs can remain; you do not need to change global `JAVA_HOME`.
+For a nonstandard JDK location use `export JDK8="/your/jdk8/Contents/Home"`.
 
-## iLO and network prerequisites
+## Controller and network requirements
 
-- An **iLO 3** that serves `/html/java_irc.html` and its `intgapp*.jar` applet.
-  Compatibility with other iLO generations is not established.
-- Your own iLO account with permission to use the remote console, plus whatever
-  remote-console licensing your server requires. This launcher does not bypass
-  permissions or licensing.
-- Connectivity to the iLO HTTPS service (normally TCP **443**) and its remote
-  console service (TCP **17990** on the tested device). Do not confuse the
-  virtual-media port **17988** with the KVM port.
-- A trusted, isolated management network or an appropriate VPN. Do not expose
-  iLO to the public internet to use this launcher.
-- If a proxy or traffic redirection tool is in use, check the route to the iLO.
-  Do not disable proxies globally or assume every blank screen is a proxy issue.
+- iLO 3 serving `/html/java_irc.html` and an `intgapp*.jar` applet.
+- An account with remote-console permission and the server's required license.
+- A separately verified **SHA-256 fingerprint of the controller's TLS certificate**.
+- Network access to HTTPS (usually TCP 443) and the controller's KVM service
+  (TCP 17990 on the tested device). Virtual-media port 17988 is not the KVM port.
+- A trusted management network / VPN. Do not expose an old iLO to the internet.
 
-## Build and run from a clean checkout
+A proxy may need a controller-specific route. The launcher does not rewrite
+Proxifier rules or globally disable proxy settings. A blank screen by itself
+is not proof of a proxy fault.
+
+## Start from source
 
 ```bash
 git clone https://github.com/xpk84/ilo3-irc.git
 cd ilo3-irc
-
-JDK8="/Library/Java/JavaVirtualMachines/zulu-8.jdk/Contents/Home"
-mkdir -p build
-"$JDK8/bin/javac" -d build src/ILO3IRC.java
-"$JDK8/bin/java" -cp build ILO3IRC
-
-# Alternatively, pre-fill the address (example only):
-"$JDK8/bin/java" -cp build ILO3IRC 10.0.0.42
+./ilo3-irc.sh --check    # validate Java, compile, no GUI or network
+./ilo3-irc.sh           # connection dialog
+# Or pre-fill an example controller address:
+./ilo3-irc.sh 10.0.0.42
 ```
 
-Enter the iLO address, username and password in the dialog. Do not supply the
-password in command-line arguments. Use a bare hostname or IPv4 address, not a
-full URL. IPv6 and non-default HTTPS port support have not been verified.
+The runner compiles all Java source files. To build manually:
 
-The launcher downloads the HP applet from your iLO and caches it under
-`~/.cache/ilo3-irc/`. Only the original HP applet creates the KVM window; there
-is no additional visible container window.
+```bash
+JDK8="/Library/Java/JavaVirtualMachines/zulu-8.jdk/Contents/Home"
+mkdir -p build
+"$JDK8/bin/javac" -d build src/*.java
+"$JDK8/bin/java" -cp build ILO3IRC
+```
 
-**Do not use `install-app.sh` yet:** it currently creates an incomplete `.app`.
-The previously tested local prototype bundle is not evidence that this repository's
-installer works. The JDK must remain installed even after future `.app` packaging
-is fixed; this repository does not bundle a Java runtime.
+### First connection: certificate verification
 
-## Security limitations — read before use
+The dialog asks for the controller, fingerprint, username and password.
+**Do not enter a password in the terminal command line or an issue report.**
 
-The current implementation disables certificate-chain and hostname verification
-inside its Java process and relaxes TLS algorithm restrictions. It currently
-creates a **TLS 1.1** context. It does not modify the installed JDK's security
-files, but that does **not** make the connection authenticated or safe from MITM.
+Obtain the fingerprint through a separately trusted administrator, a previously
+verified certificate export or another independently authenticated management
+channel. For example, calculate the fingerprint of an already trusted PEM export:
 
-**An attacker able to impersonate the iLO could steal credentials or substitute
-the downloaded applet, which executes with your local user's privileges.**
-Certificate pinning / verified trust and an explicit legacy-TLS opt-in are needed
-before this should be considered hardened community software. Use only with your
-own trusted controller on a protected management network.
+```bash
+openssl x509 -in controller-certificate.pem -noout -fingerprint -sha256
+```
 
-The launcher does not intentionally persist passwords or log the login response.
-However, the HP applet emits its own diagnostics, including server names and
-addresses. Inspect and redact logs before posting them in an issue. A clean
-secret-scanner report does not certify runtime security or anonymize applet logs.
+Paste only the 64 hexadecimal digits (colon separators are accepted). Confirm
+that you independently verified it. **Copying a certificate from an unverified
+connection and trusting it immediately does not protect against MITM.** The app
+never silently learns/trusts a certificate from the network.
 
-## Known issues
+For older controllers, explicitly select **Allow legacy TLS 1.0/1.1**.
+Modern TLS remains the default. This changes only this Java process and retains
+other JDK algorithm restrictions; installed `java.security` files are untouched.
 
-Found while reviewing the initial public commit:
+You can test pinned HTTPS without sending credentials:
 
-- **First-run shell build is broken:** `ilo3-irc.sh` invokes `bin/java/javac`
-  instead of `bin/javac`. The manual build/run commands above bypass this.
-- **The `.app` installer is incomplete:** it copies the runner and icon, but not
-  source/classes. Its runner also changes directory to `Contents/MacOS`.
-- **JSON escaping is missing:** usernames/passwords containing quotes,
-  backslashes or control characters can make the login request invalid. Do not
-  weaken your iLO password to work around this; the serializer needs fixing.
-- **Parameter parsing is partial:** `<PARAM name="…" VALUE="…">` and escaped
-  `INFO1\=` forms are not handled, and an empty language value is not replaced
-  by the fallback. The tested device's other parameters were sufficient, but
-  this is not a firmware compatibility guarantee.
-- **Cache writes are not atomic or validated:** an interrupted first download
-  can leave an unusable cached JAR. Only remove the affected controller's cached
-  JAR if redownloading is needed.
-- **Error handling is incomplete:** some failures appear only in Terminal,
-  rather than in a user-facing error dialog.
-- **Virtual Media is not verified:** the tested setup logged `Media Access not
-  available`. Mounting local disks/ISO images is not a supported feature here.
-- **Icon provenance:** the bundled icon was derived from an HP applet resource.
-  Permission to redistribute it has not been established; do not treat it as
-  covered by the project's MIT license. It needs replacement with original artwork.
+```bash
+./ilo3-irc.sh --tls-check 10.0.0.42 YOUR_VERIFIED_SHA256 --legacy-tls
+```
 
-## How it works
+Replace the placeholder with your independently verified fingerprint. The
+launcher does not accept it as a literal placeholder. Host, verified fingerprint
+and TLS choice are saved after a successful login using Java user preferences;
+usernames, passwords and session keys are not saved by the launcher. Changing
+host/pin in the dialog requires confirmation again. Certificate rotation requires
+independent verification of the replacement; there is no auto-accept fallback.
 
-1. Collect host and credentials using Swing.
-2. Log in through `/json/login_session`.
-3. Fetch `java_irc.html` and find the controller's applet JAR.
-4. Download/cache the JAR locally; it is not included in the repository.
-5. Supply an `AppletStub` / `AppletContext`, and run `init()` / `start()` outside
-   the Swing event-dispatch thread. Running the lifecycle on that thread froze
-   the UI in the prototype.
-6. Let the applet display its own console window and exit when its `exit` flag
-   is observed after the lifecycle calls return.
+## Install a self-contained app bundle
 
-## Rosetta clarification
+```bash
+./install-app.sh
+# Creates /Applications/iLO 3 Console.app, only if the target does not exist.
+```
 
-This launcher does not need Rosetta when used with an ARM64 JDK. The earlier
-claim that Rosetta disappears in macOS 27 was incorrect. [Apple's documentation](https://support.apple.com/en-us/102527),
-published September 14, 2026, states that Rosetta remains available through
-macOS 27; from macOS 28 it is limited to certain older games. This is not a claim
-that this prototype has been tested on those future/current OS releases.
+To keep an existing working installation, build a separately named candidate:
 
-## License and third-party components
+```bash
+./install-app.sh --output "$HOME/Applications/iLO 3 Console Candidate.app"
+open "$HOME/Applications/iLO 3 Console Candidate.app"
+```
 
-The launcher source and scripts are MIT licensed; see `LICENSE`.
-The HP applet JAR is downloaded from the user's own controller and is not
-redistributed here. HP/HPE software and artwork remain third-party material;
-the MIT license does not grant rights to those assets. See the icon issue above.
-This project is not affiliated with or endorsed by HP/HPE.
+The bundle contains its compiled classes and resources and does not depend on
+the source checkout. **Zulu Java 8 is still an external prerequisite.** The
+installer refuses an existing target rather than overwriting it. Candidate
+bundles use local ad-hoc signing where available, not Apple notarization.
+Do not disable Gatekeeper globally to install this tool.
+
+## Security model and remaining limits
+
+- HTTPS verifies the exact configured leaf-certificate SHA-256 fingerprint and
+  controller hostname. This deliberately supports a pinned self-signed certificate
+  without matching SAN entries. It uses **pin-based trust**, not public-CA trust;
+  it does not enforce certificate expiry once that exact certificate is pinned.
+- Wrong/missing pins fail closed before an authenticated HTTP request. Launcher
+  downloads reject redirects, unsafe paths and oversized responses. Applet HTTPS
+  defaults are also pin-restricted, never trust-all.
+- Applet JARs are cached atomically and ZIP-validated under
+  `~/.cache/ilo3-irc/pinned-v1/`, separated by controller certificate and address.
+  The old prototype's unverified cache is never reused. JAR structure validation
+  is **not** independent HPE publisher-signature verification.
+- The downloaded HP applet executes with your local user's privileges. You still
+  trust the controller firmware and the local account/filesystem. Pinning does
+  not make a compromised controller safe or modernize the old KVM protocol.
+- The applet can perform its own network access and produce diagnostics. Some
+  legacy resources use HTTP and the KVM channel uses the HP protocol, not this
+  HTTPS transport. Use an isolated management network even with a verified pin.
+- The launcher does not log the login response or persist credentials. **HP applet
+  diagnostics can contain infrastructure information**; inspect/redact logs before
+  sharing them. Never assume a clean Gitleaks result sanitizes runtime logs.
+- Virtual Media is not supported/verified on this setup (`Media Access not available`
+  was observed). Power/reset commands are not part of automated testing.
+
+## Tests
+
+Tests use generated local TLS certificates, synthetic HTML and synthetic ZIP
+fixtures, not real credentials or redistributed HP code:
+
+```bash
+bash tests/run-support-tests.sh
+bash tests/run-security-tests.sh
+bash tests/run-main-tests.sh
+# See docs/test-plan.md for packaging checks and acceptance gates.
+```
+
+`--check` verifies runtime/build only. It is not a live KVM test. A hardware
+acceptance test must confirm actual video, harmless keyboard/mouse input and
+window/process shutdown. Authentication messages alone are insufficient.
+
+## Rosetta
+
+This launcher needs no Rosetta with an ARM64 JDK. The old claim that macOS 27
+removes Rosetta was incorrect. [Apple's support page](https://support.apple.com/en-us/102527)
+(published September 14, 2026) states general availability through macOS 27,
+with functionality limited to certain older games from macOS 28. This does not
+claim the launcher has been tested on every such macOS release.
+
+## License
+
+Launcher code, scripts and original replacement artwork are MIT licensed;
+see `LICENSE` and `assets/`. The HP applet remains third-party software, fetched
+from your controller and not bundled. Older repository history contains the
+prototype HP-derived icon; that historical asset is not relicensed under MIT.
+No HP/HPE endorsement or affiliation is claimed.

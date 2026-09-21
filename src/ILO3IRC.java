@@ -1,268 +1,206 @@
 /*
- * ilo3-irc — Standalone HP iLO 3 Java Integrated Remote Console for modern macOS.
- *
- * The iLO 3 web UI still serves a Java *applet* (com.hp.ilo2.intgapp.intgapp),
- * which no browser has run for years. The usual workaround — a Wineskin/Wine
- * wrapper around the Windows .NET console — dies with Rosetta on macOS 27.
- * This launcher talks to the iLO directly:
- *
- *   1. asks for host/credentials in a Swing dialog (never stored or printed),
- *   2. POSTs /json/login_session over the TLS 1.1 the iLO 3 firmware speaks,
- *   3. fetches /html/intgapp*.jar (HP proprietary — downloaded, never bundled),
- *   4. parses the applet parameters exactly as java_irc.html would pass them,
- *   5. hosts the applet with an AppletStub and lets it build its own KVM window.
- *
- * Runs natively on Apple Silicon (Azul Zulu JDK 8 aarch64). No Rosetta,
- * no Wine, no browser, no Java Web Start / OpenWebStart.
- *
- * Usage:
- *   java -jar ilo3-irc.jar [host]
- *   java -cp . ILO3IRC [host]
- *
- * Requires Java 8 (applet API). TLS 1.0/1.1 is re-enabled in-process only —
- * the JVM-wide java.security file is never touched.
- *
- * Copyright 2026 ilo3-irc contributors. MIT license.
- * The applet jar remains property of Hewlett-Packard Enterprise and is
- * downloaded from your own iLO at runtime.
+ * ilo3-irc — native Java 8 host for the HP iLO 3 console applet.
+ * MIT licensed launcher; HP code is downloaded from the authenticated controller,
+ * never bundled. See README for independent certificate-pin verification.
  */
 import javax.swing.*;
-import javax.net.ssl.*;
-import java.applet.Applet;
-import java.applet.AppletContext;
-import java.applet.AppletStub;
-import java.applet.AudioClip;
+import javax.swing.event.*;
+import java.applet.*;
 import java.awt.*;
 import java.io.*;
-import java.lang.reflect.Field;
-import java.net.URL;
-import java.net.URLClassLoader;
-import java.net.URLConnection;
-import java.security.Security;
-import java.security.cert.X509Certificate;
+import java.net.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.*;
+import java.security.MessageDigest;
 import java.util.*;
-import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.prefs.Preferences;
+import java.util.regex.*;
 
-public class ILO3IRC {
+public final class ILO3IRC {
+    static final String VERSION = "1.0.1";
+    private static final Preferences SETTINGS = Preferences.userRoot().node("io/github/xpk84/ilo3irc");
 
-    static final String VERSION = "1.0.0";
-    static final Pattern RE_JAR = Pattern.compile("archive=(/html/intgapp[\\w.]*\\.jar)");
-    static final Pattern RE_RCINFO = Pattern.compile(
-            "(?:document\\.writeln\\(\")?<(?:param|embed)[^>]*name=\\\"?(\\w+)\\\"?[^>]*value=\\\"([^\\\"]*)\\\"",
-            Pattern.CASE_INSENSITIVE);
+    public static void main(String[] args) {
+        try {
+            if (args.length==1 && ("--help".equals(args[0]) || "-h".equals(args[0]))) {
+                System.out.println("Usage: ilo3-irc.sh [HOST]\n  --check: validate runtime/build (no GUI/network)\n  --version\n  --tls-check HOST SHA256 [--legacy-tls]: verify pinned HTTPS without login\nFirst connection requires an independently verified SHA-256 certificate fingerprint.");
+                return;
+            }
+            if(args.length==1 && "--version".equals(args[0])) {System.out.println("ilo3-irc "+VERSION);return;}
+            checkRuntime();
+            if(args.length==1 && "--check".equals(args[0])) {System.out.println("ilo3-irc runtime/classes OK: Java "+System.getProperty("java.version")+", "+System.getProperty("os.arch"));return;}
+            if(args.length>=1 && "--tls-check".equals(args[0])) {
+                if(args.length<3 || args.length>4 || (args.length==4 && !"--legacy-tls".equals(args[3]))) throw new IllegalArgumentException("Usage: --tls-check HOST SHA256 [--legacy-tls]");
+                SecureIlo transport=new SecureIlo(IloSupport.validateHost(args[1]),args[2],args.length==4);
+                transport.get("/",1024*1024);
+                System.out.println("Pinned HTTPS verification succeeded. No login was attempted.");return;
+            }
+            if(args.length>1 || (args.length==1 && args[0].startsWith("-"))) throw new IllegalArgumentException("Unknown arguments; use --help");
+            String initial=args.length==1 ? IloSupport.validateHost(args[0]) : SETTINGS.get("lastHost","");
+            Credentials credentials=credentials(initial);
+            if(credentials==null) return;
+            try { connect(credentials); }
+            finally { Arrays.fill(credentials.password,'\0'); }
+        } catch(Exception ex) {
+            String message=ex.getMessage();
+            if(message==null || message.trim().isEmpty()) message=ex.getClass().getSimpleName();
+            final String error="Connection/startup failed: "+message;
+            System.err.println("[ilo3-irc] "+error);
+            if(!GraphicsEnvironment.isHeadless()) {
+                try { SwingUtilities.invokeAndWait(() -> JOptionPane.showMessageDialog(null,error,"iLO 3 Console",JOptionPane.ERROR_MESSAGE)); }
+                catch(Exception ignored) { /* stderr remains available */ }
+            }
+            System.exit(2);
+        }
+    }
 
-    public static void main(String[] args) throws Exception {
-        final String hostArg = args.length > 0 ? args[0] : "";
+    static void checkRuntime() {
+        if(!System.getProperty("java.specification.version","").equals("1.8")) throw new IllegalArgumentException("Java 8 is required; install Azul Zulu JDK 8 ARM64");
+        // Scripts additionally compare executable slices with the physical Mac architecture.
+        String arch=System.getProperty("os.arch","");
+        if(System.getProperty("os.name","").equals("Mac OS X") && !arch.equals("aarch64") && !arch.equals("arm64")) {
+            throw new IllegalArgumentException("This macOS launcher requires ARM64 Java 8, not an Intel/Rosetta JVM");
+        }
+    }
 
-        // --- 1. credentials dialog (masked; never logged) ---
-        final String[] creds = new String[3];
+    private static final class Credentials {
+        final String host,user,pin; final char[] password; final boolean legacy;
+        Credentials(String h,String u,char[] p,String pin,boolean legacy) {host=h;user=u;password=p;this.pin=pin;this.legacy=legacy;}
+    }
+
+    private static Credentials credentials(String initial) throws Exception {
+        final Credentials[] result=new Credentials[1];
         SwingUtilities.invokeAndWait(() -> {
-            JPanel p = new JPanel(new GridLayout(3, 2, 6, 6));
-            JTextField hostF = new JTextField(hostArg, 16);
-            JTextField userF = new JTextField(16);
-            JPasswordField passF = new JPasswordField(16);
-            p.add(new JLabel("iLO address:")); p.add(hostF);
-            p.add(new JLabel("Login:"));       p.add(userF);
-            p.add(new JLabel("Password:"));    p.add(passF);
-            int ok = JOptionPane.showConfirmDialog(null, p,
-                    "iLO 3 Remote Console", JOptionPane.OK_CANCEL_OPTION,
-                    JOptionPane.PLAIN_MESSAGE);
-            if (ok != JOptionPane.OK_OPTION) System.exit(0);
-            creds[0] = hostF.getText().trim();
-            creds[1] = userF.getText().trim();
-            creds[2] = new String(passF.getPassword());
-        });
-        if (creds[0].isEmpty() || creds[1].isEmpty() || creds[2].isEmpty()) {
-            fail("Host, login and password are required.");
-        }
-        String host = creds[0];
-
-        relaxTls();
-
-        // --- 2. login ---
-        Map<String, String> login = login(host, creds[1], creds[2]);
-        String sessionKey = login.get("session_key");
-        if (sessionKey == null) fail("Login failed — check credentials and address.");
-        System.out.println("[ilo3-irc] session established (key length "
-                + sessionKey.length() + "), remote port " + login.get("remote_port"));
-
-        // --- 3. fetch applet jar + page from the iLO itself ---
-        String ircHtml = httpGet("https://" + host + "/html/java_irc.html");
-        Matcher jarM = RE_JAR.matcher(ircHtml);
-        if (!jarM.find()) fail("Could not find intgapp jar reference in /html/java_irc.html — is this an iLO 3?");
-        String jarPath = jarM.group(1);
-        System.out.println("[ilo3-irc] applet jar: " + jarPath);
-
-        File cache = new File(System.getProperty("user.home"),
-                ".cache/ilo3-irc/" + host + jarPath.substring(jarPath.lastIndexOf('/')));
-        cache.getParentFile().mkdirs();
-        if (!cache.exists()) {
-            System.out.println("[ilo3-irc] downloading applet jar (first run only)...");
-            byte[] jar = httpGetBytes("https://" + host + jarPath);
-            try (OutputStream out = new FileOutputStream(cache)) { out.write(jar); }
-        }
-        // Always add the runtime-downloaded jar first; bundled copy (if any) second.
-        URL jarUrl = cache.toURI().toURL();
-        URLClassLoader cl = new URLClassLoader(new URL[]{ jarUrl },
-                ILO3IRC.class.getClassLoader());
-        Thread.currentThread().setContextClassLoader(cl);
-
-        // --- 4. parse applet params exactly as java_irc.html passes them ---
-        Map<String, String> params = parseAppletParams(ircHtml);
-        params.put("RCINFO1", sessionKey);                       // session key
-        // RCINFO6 (KVM port): normally filled by the browser from window.name;
-        // the login response carries it as remote_port, INFO1 is the static default.
-        if (login.get("remote_port") != null) params.put("RCINFO6", login.get("remote_port"));
-        else if (params.get("INFO1") != null) params.put("RCINFO6", params.get("INFO1"));
-        else params.put("RCINFO6", "17988");
-        if (!params.containsKey("RCINFOLANG")) params.put("RCINFOLANG", Locale.getDefault().getLanguage());
-
-        final Applet applet = (Applet) cl.loadClass("com.hp.ilo2.intgapp.intgapp").newInstance();
-        final URL codeBase = new URL("https://" + host + "/html/");
-        applet.setStub(new AppletStub() {
-            public boolean isActive() { return true; }
-            public URL getDocumentBase() { return codeBase; }
-            public URL getCodeBase() { return codeBase; }
-            public String getParameter(String name) { return params.get(name); }
-            public AppletContext getAppletContext() { return CTX; }
-            public void appletResize(int w, int h) {}
-        });
-
-        // --- 5. run the applet OFF the EDT (it blocks on the KVM receiver) ---
-        System.out.println("[ilo3-irc] starting applet...");
-        Thread t = new Thread(() -> {
-            try {
-                applet.init();
-                applet.start();
-                System.out.println("[ilo3-irc] console window should be visible now");
-                // The applet sets its public `exit` field when its window closes.
-                Field exitF = applet.getClass().getField("exit");
-                while (!exitF.getBoolean(applet)) Thread.sleep(500);
-                System.out.println("[ilo3-irc] window closed — exiting");
-                System.exit(0);
-            } catch (Throwable e) {
-                e.printStackTrace();
-                System.exit(3);
-            }
-        }, "applet-main");
-        t.start();
-        t.join();
-    }
-
-    // ------------------------------------------------------------------
-
-    /** Minimal AppletContext: images via Toolkit, no browser around. */
-    static final AppletContext CTX = new AppletContext() {
-        public AudioClip getAudioClip(URL u) { return null; }
-        public Image getImage(URL u) {
-            try {
-                URLConnection c = u.openConnection();
-                c.setConnectTimeout(5000);
-                try (InputStream in = c.getInputStream()) {
-                    ByteArrayOutputStream bo = new ByteArrayOutputStream();
-                    byte[] b = new byte[8192]; int n;
-                    while ((n = in.read(b)) > 0) bo.write(b, 0, n);
-                    return Toolkit.getDefaultToolkit().createImage(bo.toByteArray());
+            JTextField host=new JTextField(initial,24);
+            JTextField user=new JTextField(24);
+            JPasswordField pass=new JPasswordField(24);
+            JTextField fingerprint=new JTextField(SETTINGS.get("pin_"+key(initial),""),48);
+            JCheckBox legacy=new JCheckBox("Allow legacy TLS 1.0/1.1 for this controller",SETTINGS.getBoolean("legacy_"+key(initial),false));
+            JCheckBox verified=new JCheckBox("I independently verified this certificate fingerprint",!fingerprint.getText().isEmpty());
+            JPanel fields=new JPanel(new GridLayout(4,2,8,8));
+            fields.add(new JLabel("iLO hostname / IP:"));fields.add(host);
+            fields.add(new JLabel("SHA-256 certificate fingerprint:"));fields.add(fingerprint);
+            fields.add(new JLabel("Username:"));fields.add(user);
+            fields.add(new JLabel("Password:"));fields.add(pass);
+            JPanel panel=new JPanel();panel.setLayout(new BoxLayout(panel,BoxLayout.Y_AXIS));
+            panel.add(new JLabel("<html>Use a fingerprint from a separately trusted administrator/certificate export.<br>Do not trust a fingerprint merely because this connection presented it.</html>"));
+            panel.add(Box.createVerticalStrut(10));panel.add(fields);panel.add(verified);panel.add(legacy);
+            panel.add(new JLabel("Only host, verified pin and TLS choice are saved; never your login/password."));
+            DocumentListener reset=new DocumentListener() {
+                public void insertUpdate(DocumentEvent e){verified.setSelected(false);}
+                public void removeUpdate(DocumentEvent e){verified.setSelected(false);}
+                public void changedUpdate(DocumentEvent e){verified.setSelected(false);}
+            };
+            host.getDocument().addDocumentListener(reset);fingerprint.getDocument().addDocumentListener(reset);
+            while(true) {
+                int choice=JOptionPane.showConfirmDialog(null,panel,"iLO 3 Console",JOptionPane.OK_CANCEL_OPTION,JOptionPane.PLAIN_MESSAGE);
+                if(choice!=JOptionPane.OK_OPTION) {pass.setText("");return;}
+                char[] password=pass.getPassword();
+                try {
+                    String authority=IloSupport.validateHost(host.getText().trim());
+                    SecureIlo.parseFingerprint(fingerprint.getText());
+                    if(!verified.isSelected()) throw new IllegalArgumentException("Verify the fingerprint independently and confirm the checkbox before sending credentials");
+                    if(user.getText().trim().isEmpty() || password.length==0) throw new IllegalArgumentException("Username and password are required");
+                    String pin=fingerprint.getText().replace(":","").replaceAll("\\s","").toUpperCase(Locale.ROOT);
+                    result[0]=new Credentials(authority,user.getText().trim(),password,pin,legacy.isSelected());
+                    pass.setText(""); return;
+                } catch(Exception ex) {
+                    Arrays.fill(password,'\0');
+                    JOptionPane.showMessageDialog(null,ex.getMessage(),"Check connection settings",JOptionPane.ERROR_MESSAGE);
                 }
-            } catch (Exception e) {
-                System.out.println("[ilo3-irc] getImage(" + u + ") failed: " + e);
-                return null;
             }
-        }
-        public Applet getApplet(String n) { return null; }
-        public Enumeration<Applet> getApplets() { return Collections.emptyEnumeration(); }
-        public void showDocument(URL u) {}
-        public void showDocument(URL u, String t) {}
-        public void showStatus(String s) { System.out.println("[status] " + s); }
-        public void setStream(String k, InputStream v) {}
-        public InputStream getStream(String k) { return null; }
-        public Iterator<String> getStreamKeys() {
-            return Collections.<String>emptyIterator();
-        }
-    };
-
-    /** Pull RCINFO / INFO applet params out of java_irc.html (embed + param forms). */
-    static Map<String, String> parseAppletParams(String html) {
-        Map<String, String> m = new LinkedHashMap<>();
-        // java_irc.html builds the applet via document.writeln("... RCINFOx=\"value\" ...")
-        // in escaped-JavaScript form: RCINFO0=\"value\". Match both raw and escaped quotes.
-        Matcher emb = Pattern.compile("(\\w+)=\\\\?\"([^\\\\\"]*)\\\\?\"").matcher(html);
-        while (emb.find()) {
-            String k = emb.group(1), v = emb.group(2);
-            if (k.startsWith("RCINFO") || k.startsWith("INFO") || k.startsWith("INTG")) m.put(k, v);
-        }
-        System.out.println("[ilo3-irc] applet params from iLO: " + m.keySet());
-        return m;
-    }
-
-    /** iLO 3 speaks TLS 1.0/1.1 with self-signed certs — relax in-process only. */
-    static void relaxTls() throws Exception {
-        Security.setProperty("jdk.tls.disabledAlgorithms",
-                "SSLv3, RC4, DES, MD5withRSA, DH keySize < 768");
-        SSLContext ctx = SSLContext.getInstance("TLSv1.1");
-        ctx.init(null, new TrustManager[]{ new X509TrustManager() {
-            public void checkClientTrusted(X509Certificate[] c, String t) {}
-            public void checkServerTrusted(X509Certificate[] c, String t) {}
-            public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
-        }}, null);
-        HttpsURLConnection.setDefaultSSLSocketFactory(ctx.getSocketFactory());
-        HttpsURLConnection.setDefaultHostnameVerifier(new HostnameVerifier() {
-            public boolean verify(String h, SSLSession s) { return true; }
         });
+        return result[0];
     }
 
-    /** POST /json/login_session; returns session_key / remote_port. */
-    static Map<String, String> login(String host, String user, String pass) throws Exception {
-        HttpsURLConnection c = (HttpsURLConnection)
-                new URL("https://" + host + "/json/login_session").openConnection();
-        c.setRequestMethod("POST");
-        c.setDoOutput(true);
-        c.setConnectTimeout(10000);
-        c.setReadTimeout(10000);
-        c.setRequestProperty("Content-Type", "application/json");
-        String body = "{\"method\":\"login\",\"user_login\":\"" + user + "\",\"password\":\"" + pass + "\"}";
-        try (OutputStream os = c.getOutputStream()) { os.write(body.getBytes("UTF-8")); }
-
-        int code = c.getResponseCode();
-        String resp = slurp(code >= 400 ? c.getErrorStream() : c.getInputStream());
-        System.out.println("[ilo3-irc] login HTTP " + code); // response contains the session key — do not log it
-        Map<String, String> m = new HashMap<>();
-        Matcher k = Pattern.compile("\"session_key\"\\s*:\\s*\"([0-9a-fA-F]+)\"").matcher(resp);
-        if (k.find()) m.put("session_key", k.group(1));
-        Matcher p = Pattern.compile("\"remote_port\"\\s*:\\s*(\\d+)").matcher(resp);
-        if (p.find()) m.put("remote_port", p.group(1));
-        return m;
+    private static String key(String value) {
+        try {
+            StringBuilder s=new StringBuilder();
+            for(byte b:MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8))) s.append(String.format(Locale.ROOT,"%02x",b & 255));
+            return s.toString();
+        } catch(java.security.NoSuchAlgorithmException ex) {throw new IllegalStateException(ex);}
     }
 
-    static String httpGet(String u) throws Exception { return new String(httpGetBytes(u), "UTF-8"); }
-    static byte[] httpGetBytes(String u) throws Exception {
-        URLConnection c = new URL(u).openConnection();
-        c.setConnectTimeout(10000);
-        c.setReadTimeout(30000);
-        try (InputStream in = c.getInputStream();
-             ByteArrayOutputStream bo = new ByteArrayOutputStream()) {
-            byte[] b = new byte[8192]; int n;
-            while ((n = in.read(b)) > 0) bo.write(b, 0, n);
-            return bo.toByteArray();
+    static String loginBody(String user,String password) {
+        return "{\"method\":\"login\",\"user_login\":"+IloSupport.jsonString(user)+",\"password\":"+IloSupport.jsonString(password)+"}";
+    }
+
+    private static void connect(Credentials c) throws Exception {
+        SecureIlo transport=new SecureIlo(c.host,c.pin,c.legacy);
+        String body=loginBody(c.user,new String(c.password));
+        String response;
+        try { response=new String(transport.postJson("/json/login_session",body),StandardCharsets.UTF_8); }
+        finally { Arrays.fill(c.password,'\0'); body=null; }
+        Matcher session=Pattern.compile("\"session_key\"\\s*:\\s*\"([0-9a-fA-F]{16,128})\"").matcher(response);
+        if(!session.find()) throw new IOException("Login rejected or unexpected iLO response; check account permissions");
+        String sessionKey=session.group(1);
+        SETTINGS.put("lastHost",c.host);SETTINGS.put("pin_"+key(c.host),c.pin);SETTINGS.putBoolean("legacy_"+key(c.host),c.legacy);
+        // Fetch applet metadata with authenticated TLS. Session response is never logged.
+        String html=new String(transport.get("/html/java_irc.html",2*1024*1024),StandardCharsets.UTF_8);
+        String jarPath=IloSupport.jarPath(html);
+        // Never reuse JARs downloaded by the old trust-all prototype or by another certificate.
+        Path root=Paths.get(System.getProperty("user.home"),".cache","ilo3-irc","pinned-v1",c.pin.toLowerCase(Locale.ROOT));
+        Path cached=IloSupport.cachedJar(root,c.host,jarPath,() -> transport.get(jarPath,16*1024*1024));
+        Map<String,String> params=IloSupport.parseAppletParams(html);
+        params.put("RCINFO1",sessionKey);
+        Matcher port=Pattern.compile("\"remote_port\"\\s*:\\s*(\\d+)").matcher(response);
+        String browserPort=port.find() ? port.group(1) : params.get("INFO1");
+        // Preserve browser's legacy auxiliary argument; applet discovers actual KVM rc_port itself.
+        params.put("RCINFO6",browserPort==null || browserPort.isEmpty() ? "17988" : browserPort);
+        transport.installAppletDefaults();
+        URL jarUrl=cached.toUri().toURL();
+        try(URLClassLoader loader=new URLClassLoader(new URL[]{jarUrl},ILO3IRC.class.getClassLoader())) {
+            Thread.currentThread().setContextClassLoader(loader);
+            Applet applet=(Applet)loader.loadClass("com.hp.ilo2.intgapp.intgapp").getDeclaredConstructor().newInstance();
+            URL codeBase=new URL("https://"+c.host+"/html/");
+            AppletContext context=appletContext(transport,codeBase,jarUrl);
+            applet.setStub(new AppletStub() {
+                public boolean isActive(){return true;}
+                public URL getDocumentBase(){return codeBase;}
+                public URL getCodeBase(){return codeBase;}
+                public String getParameter(String name){return params.get(name);}
+                public AppletContext getAppletContext(){return context;}
+                public void appletResize(int w,int h){}
+            });
+            System.out.println("[ilo3-irc] Starting controller applet; its diagnostics may contain infrastructure details.");
+            // Main is not Swing EDT. Keep blocking HP lifecycle off the event queue.
+            applet.init();
+            applet.start();
+            java.lang.reflect.Field exit=applet.getClass().getField("exit");
+            while(!exit.getBoolean(applet)) Thread.sleep(250);
+            params.clear();
         }
+        System.out.println("[ilo3-irc] Console closed.");
+        System.exit(0); // HP applet may retain non-daemon native/UI threads after stop().
     }
 
-    static String slurp(InputStream in) throws IOException {
-        if (in == null) return "";
-        StringBuilder sb = new StringBuilder();
-        try (BufferedReader r = new BufferedReader(new InputStreamReader(in, "UTF-8"))) {
-            String line;
-            while ((line = r.readLine()) != null) sb.append(line);
-        }
-        return sb.toString();
-    }
-
-    static void fail(String msg) {
-        System.err.println("[ilo3-irc] " + msg);
-        JOptionPane.showMessageDialog(null, msg, "ilo3-irc",
-                JOptionPane.ERROR_MESSAGE);
-        System.exit(2);
+    private static AppletContext appletContext(SecureIlo transport,URL origin,URL jar) {
+        return new AppletContext() {
+            public AudioClip getAudioClip(URL url){return null;}
+            public Image getImage(URL url) {
+                try {
+                    byte[] bytes;
+                    if((url.getProtocol().equals("https") || url.getProtocol().equals("http")) && url.getHost().equalsIgnoreCase(origin.getHost()) &&
+                       (url.getPort()==-1 || url.getPort()==origin.getPort())) {
+                        bytes=transport.get(url.getFile(),4*1024*1024);
+                    } else if(url.toExternalForm().startsWith("jar:"+jar.toExternalForm()+"!/")) {
+                        try(InputStream in=url.openStream();ByteArrayOutputStream out=new ByteArrayOutputStream()) {
+                            byte[] b=new byte[8192];int n;
+                            while((n=in.read(b))!=-1){if(n>4*1024*1024-out.size())throw new IOException("Image too large");out.write(b,0,n);}
+                            bytes=out.toByteArray();
+                        }
+                    } else throw new IOException("Image is outside trusted controller/applet");
+                    return Toolkit.getDefaultToolkit().createImage(bytes);
+                } catch(IOException ex) {System.err.println("[ilo3-irc] Applet image unavailable");return null;}
+            }
+            public Applet getApplet(String name){return null;}
+            public Enumeration<Applet> getApplets(){return Collections.emptyEnumeration();}
+            public void showDocument(URL url){}
+            public void showDocument(URL url,String target){}
+            public void showStatus(String status){} // Do not echo untrusted session-bearing messages.
+            public void setStream(String key,InputStream stream){}
+            public InputStream getStream(String key){return null;}
+            public Iterator<String> getStreamKeys(){return Collections.emptyIterator();}
+        };
     }
 }

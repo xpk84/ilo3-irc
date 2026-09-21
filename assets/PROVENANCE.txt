@@ -1,0 +1,25 @@
+Original console icon provenance
+================================
+
+This repository's replacement app icon is an original geometric drawing:
+a dark rounded tile, a monitor and stand, a terminal chevron and cursor.
+The drawing was composed specifically for this project using the coordinates
+in generate_icon.py. It uses no HP/HPE logos, copied images, traced vendor
+artwork, external fonts, stock icons, or downloaded assets.
+
+Source of truth: assets/generate_icon.py (SHAPES).
+Editable vector rendering: assets/original-console.svg.
+Preview: assets/original-console.png (1024 x 1024 RGBA).
+Application resource: app-icon.icns (16, 32, 64, 128, 256, 512, 1024 px).
+
+License: MIT, under this repository's LICENSE.
+
+Reproduce with Python 3 standard library only:
+  python3 assets/generate_icon.py
+
+Reproduce without changing the checkout:
+  python3 assets/generate_icon.py --output-dir /absolute/path/to/scratch
+
+Python is needed only to regenerate or test artwork, not to build, install,
+check, or run the app. The generator is deterministic and does not use the
+network or macOS GUI. Its SVG and PNG use the same primitive definitions.
