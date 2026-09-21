@@ -1,5 +1,5 @@
 /*
- * ilo3-irc — native Java 8 host for the HP iLO 3 console applet.
+ * ilo3-irc — native Java 8 host for the HP iLO 3 and iLO 4 console applet.
  * MIT licensed launcher; HP code is downloaded from the authenticated controller,
  * never bundled. See README for first-use trust and optional independent pin verification.
  */
@@ -17,7 +17,7 @@ import java.util.prefs.Preferences;
 import java.util.regex.*;
 
 public final class ILO3IRC {
-    static final String VERSION = "1.1.0";
+    static final String VERSION = "1.2.0";
     private static final Preferences SETTINGS = Preferences.userRoot().node("io/github/xpk84/ilo3irc");
 
     public static void main(String[] args) {
@@ -49,7 +49,7 @@ public final class ILO3IRC {
             final String error="Connection/startup failed: "+message;
             System.err.println("[ilo3-irc] "+error);
             if(!GraphicsEnvironment.isHeadless()) {
-                try { SwingUtilities.invokeAndWait(() -> JOptionPane.showMessageDialog(null,error,"iLO 3 Console",JOptionPane.ERROR_MESSAGE)); }
+                try { SwingUtilities.invokeAndWait(() -> JOptionPane.showMessageDialog(null,error,"iLO 3/4 Console",JOptionPane.ERROR_MESSAGE)); }
                 catch(Exception ignored) { /* stderr remains available */ }
             }
             System.exit(2);
@@ -102,6 +102,7 @@ public final class ILO3IRC {
         Matcher session=Pattern.compile("\"session_key\"\\s*:\\s*\"([0-9a-fA-F]{16,128})\"").matcher(response);
         if(!session.find()) throw new IOException("Login rejected or unexpected iLO response; check account permissions");
         String sessionKey=session.group(1);
+        transport.setSessionCookie(sessionKey); // iLO 4 realm pages; iLO 3 ignores it
         registry.markConnected(c.host,c.pin,System.currentTimeMillis(),c.legacy);
         SETTINGS.put("lastHost",c.host);
         // Fetch applet metadata with authenticated TLS. Session response is never logged.

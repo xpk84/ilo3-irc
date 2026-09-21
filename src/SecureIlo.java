@@ -262,6 +262,15 @@ final class SecureIlo {
         return new URL("https://" + authority + path);
     }
 
+    private String sessionCookie; // controller session, set only after a pinned login
+
+    /** iLO 4 realm pages require the browser session cookie; iLO 3 ignores it. */
+    void setSessionCookie(String value) {
+        if (value != null && (value.isEmpty() || value.matches("[\\x00-\\x1f\\x7f]*") || value.length() > 512))
+            throw new IllegalArgumentException("Invalid controller session cookie");
+        sessionCookie = value;
+    }
+
     byte[] get(String path, int limit) throws IOException { return request("GET",path,null,limit); }
     byte[] postJson(String path, String json) throws IOException { return request("POST",path,json.getBytes("UTF-8"),1024*1024); }
 
@@ -274,6 +283,7 @@ final class SecureIlo {
         c.setReadTimeout(20000);
         c.setUseCaches(false);
         c.setRequestMethod(method);
+        if (sessionCookie != null) c.setRequestProperty("Cookie","sessionKey=" + sessionCookie);
         try {
             if (body!=null) {
                 c.setDoOutput(true);

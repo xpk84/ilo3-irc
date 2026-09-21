@@ -12,7 +12,7 @@ public final class TofuLayoutTest {
         Thread timeout=new Thread(() -> {try{Thread.sleep(15000);}catch(Exception e){}System.err.println("FAIL login dialog missing");System.exit(2);});timeout.setDaemon(true);timeout.start();
         SwingUtilities.invokeLater(() -> {
             Timer timer=new Timer(250,e -> {
-                for(Window window:Window.getWindows())if(window instanceof JDialog && window.isShowing() && ((JDialog)window).getTitle().equals("iLO 3 Console")) {
+                for(Window window:Window.getWindows())if(window instanceof JDialog && window.isShowing() && ((JDialog)window).getTitle().equals("iLO 3/4 Console")) {
                     if(find(window,JTable.class)==null){System.err.println("FAIL known-controller registry table absent");System.exit(1);}
                     if(find(window,JPasswordField.class)==null){System.err.println("FAIL masked password field absent");System.exit(1);}
                     System.out.println("PASS known-controller table and masked password field visible");

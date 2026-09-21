@@ -61,7 +61,7 @@ final class ConnectionDialog extends JDialog {
         });
     }
     ConnectionDialog(KnownControllers registry,String initial,Observer observer,TrustHistory history) throws IOException {
-        super((Frame)null,"iLO 3 Console",true);this.registry=registry;this.observer=observer;this.history=history;
+        super((Frame)null,"iLO 3/4 Console",true);this.registry=registry;this.observer=observer;this.history=history;
         if(!initial.isEmpty())history.migrate(registry,initial);
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
         addWindowListener(new WindowAdapter(){public void windowClosing(WindowEvent e){cancel();}});

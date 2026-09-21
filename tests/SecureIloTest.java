@@ -49,6 +49,13 @@ public class SecureIloTest {
         server.createContext("/redirect", x -> { x.getResponseHeaders().set("Location","https://example.invalid/stolen"); x.sendResponseHeaders(302,-1); x.close(); });
         server.createContext("/large", x -> { byte[] b=new byte[8192]; x.sendResponseHeaders(200,b.length); try(OutputStream o=x.getResponseBody()){o.write(b);} });
         server.createContext("/json", x -> { byte[] b="{\"ok\":true}".getBytes("UTF-8"); x.sendResponseHeaders(200,b.length); try(OutputStream o=x.getResponseBody()){o.write(b);} });
+        final String[] seenCookie={null};
+        server.createContext("/realm", x -> {
+            String cookie=x.getRequestHeaders().getFirst("Cookie");
+            seenCookie[0]=cookie;
+            if (cookie==null || !cookie.contains("sessionKey=")) { x.sendResponseHeaders(403,-1); x.close(); return; }
+            byte[] b="realm-ok".getBytes("UTF-8"); x.sendResponseHeaders(200,b.length); try(OutputStream o=x.getResponseBody()){o.write(b);}
+        });
         server.start();
         try {
             String host="127.0.0.1:"+server.getAddress().getPort();
@@ -68,6 +75,12 @@ public class SecureIloTest {
             rejected(() -> get(good,"https://example.invalid/ok"),"absolute URL rejected");
             rejected(() -> get(good,"//example.invalid/ok"),"scheme-relative escape rejected");
             rejected(() -> get(good,"/large"),"bounded response size enforced");
+            rejected(() -> get(good,"/realm"),"realm page without session cookie rejected");
+            good.getClass().getDeclaredMethod("setSessionCookie",String.class).invoke(good,"session key with quotes \" and ; separators");
+            check("realm-ok".equals(new String(get(good,"/realm"),"UTF-8")),"session cookie unlocks realm page");
+            check(seenCookie[0]!=null && seenCookie[0].contains("sessionKey=session key with quotes \" and ; separators"),"session cookie sent verbatim");
+            good.getClass().getDeclaredMethod("setSessionCookie",String.class).invoke(good,(Object)null);
+            check(true,"session cookie can be cleared");
             rejected(() -> transport("user@127.0.0.1",pin,false),"userinfo rejected");
             check(hits.get()==1,"only correct pin delivered application request");
             // The applet receives process-wide defaults, but trust is still exact-pin-only.

@@ -2,7 +2,7 @@
 # Build a self-contained app; runtime remains external. Never replace an app.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-APP='/Applications/iLO 3 Console.app'
+APP='/Applications/iLO 3-4 Console.app'
 usage() { printf 'Usage: %s [--output /absolute/path/Candidate.app]\n' "$0" >&2; }
 if [ "$#" -ne 0 ]; then
     if [ "$#" -ne 2 ] || [ "$1" != --output ]; then usage; exit 2; fi
@@ -74,11 +74,11 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
 <dict>
     <key>CFBundleExecutable</key><string>ilo3-console</string>
     <key>CFBundleIdentifier</key><string>io.github.xpk84.ilo3irc</string>
-    <key>CFBundleName</key><string>iLO 3 Console</string>
-    <key>CFBundleDisplayName</key><string>iLO 3 Console</string>
+    <key>CFBundleName</key><string>iLO 3/4 Console</string>
+    <key>CFBundleDisplayName</key><string>iLO 3/4 Console</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleIconFile</key><string>app-icon</string>
-    <key>CFBundleShortVersionString</key><string>1.1.0</string>
+    <key>CFBundleShortVersionString</key><string>1.2.0</string>
     <key>CFBundleVersion</key><string>1</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
 </dict>

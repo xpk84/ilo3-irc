@@ -1,12 +1,14 @@
 # ilo3-irc
 
-Standalone Java 8 host for the HP iLO 3 Java Integrated Remote Console on
-**macOS / Apple Silicon**. No Wine, Rosetta, browser plugin or OpenWebStart.
+Standalone Java 8 host for the HP **iLO 3 and iLO 4** Java Integrated Remote
+Console on **macOS / Apple Silicon**. No Wine, Rosetta, browser plugin or
+OpenWebStart.
 
 The controller's HP applet is downloaded at runtime, not distributed in this
-repository. The original prototype displayed a working console on one iLO 3;
-see `docs/status.md` for the repaired candidate's actual validation status.
-Other firmware/macOS combinations are not a compatibility guarantee.
+repository. Live-validated on an iLO 3 (firmware shipping `intgapp3_231.jar`)
+and an iLO 4 DL360e Gen8, firmware 2.81 (`intgapp4_232.jar`, TLS 1.2, session
+cookie handled automatically); see `docs/status.md` for the exact validation
+status. Other firmware/macOS combinations are not a compatibility guarantee.
 
 ## Install these prerequisites on macOS
 
@@ -58,7 +60,10 @@ For a nonstandard JDK location use `export JDK8="/your/jdk8/Contents/Home"`.
 
 ## Controller and network requirements
 
-- iLO 3 serving `/html/java_irc.html` and an `intgapp*.jar` applet.
+- iLO 3 or iLO 4 serving `/html/java_irc.html` and an `intgapp*.jar` applet
+  (tested: iLO 3 `intgapp3_231.jar`; iLO 4 `intgapp4_232.jar`).
+  On iLO 4 the launcher sends the login session cookie when fetching console
+  pages, matching the browser's realm-authorized flow.
 - An account with remote-console permission and the server's required license.
 - Explicit first-use certificate acceptance; independent fingerprint verification is optional.
 - Network access to HTTPS (usually TCP 443) and the controller's KVM service
@@ -150,14 +155,14 @@ Replace the placeholder with a real independently verified fingerprint.
 
 ```bash
 ./install-app.sh
-# Creates /Applications/iLO 3 Console.app, only if the target does not exist.
+# Creates /Applications/iLO 3-4 Console.app, only if the target does not exist.
 ```
 
 To keep an existing working installation, build a separately named candidate:
 
 ```bash
-./install-app.sh --output "$HOME/Applications/iLO 3 Console Candidate.app"
-open "$HOME/Applications/iLO 3 Console Candidate.app"
+./install-app.sh --output "$HOME/Applications/iLO 3-4 Console Candidate.app"
+open "$HOME/Applications/iLO 3-4 Console Candidate.app"
 ```
 
 The bundle contains its compiled classes and resources and does not depend on
