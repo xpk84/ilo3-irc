@@ -234,3 +234,6 @@ see `LICENSE` and `assets/`. The HP applet remains third-party software, fetched
 from your controller and not bundled. Older repository history contains the
 prototype HP-derived icon; that historical asset is not relicensed under MIT.
 No HP/HPE endorsement or affiliation is claimed.
+
+"HP", "HPE" and "iLO" are trademarks of Hewlett Packard Enterprise Company.
+This project is not affiliated with or endorsed by HPE.
