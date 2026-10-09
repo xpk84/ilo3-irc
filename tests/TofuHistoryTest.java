@@ -43,8 +43,8 @@ public final class TofuHistoryTest {
                     if(System.currentTimeMillis()>deadline)throw new AssertionError("migration UI timeout at "+stage.get());
                     if(stage.get()==0){stage.set(1);SwingUtilities.invokeLater(()->((JButton)TofuFlowTest.named(dialog,"connectButton")).doClick());return;}
                     if(stage.get()==1){
-                        if(TofuFlowTest.popup("Новый сертификат iLO")!=null)throw new AssertionError("legacy pin lost: first use prompted");
-                        JDialog p=TofuFlowTest.popup("Сертификат изменился");if(p==null)return;
+                        if(TofuFlowTest.popup(Messages.text("first.title"))!=null)throw new AssertionError("legacy pin lost: first use prompted");
+                        JDialog p=TofuFlowTest.popup(Messages.text("changed.title"));if(p==null)return;
                         stage.set(2);p.dispose();return;
                     }
                     if(stage.get()==2 && ((JButton)TofuFlowTest.named(dialog,"connectButton")).isEnabled()){
@@ -53,16 +53,18 @@ public final class TofuHistoryTest {
                         stage.set(3);SwingUtilities.invokeLater(()->((JButton)TofuFlowTest.named(dialog,"removeTrustButton")).doClick());return;
                     }
                     if(stage.get()==3){
-                        JDialog p=TofuFlowTest.popup("Удалить доверие");if(p==null)return;
-                        JOptionPane pane=TofuLayoutTest.find(p,JOptionPane.class);stage.set(4);pane.setValue(JOptionPane.OK_OPTION);return;
+                        JDialog p=TofuFlowTest.popup(Messages.text("remove.title"));if(p==null)return;
+                        JOptionPane pane=TofuLayoutTest.find(p,JOptionPane.class);
+                        if(!Messages.text("cancel").equals(pane.getInitialValue()))throw new AssertionError("removal must default to cancel");
+                        stage.set(4);TofuFlowTest.button(p,Messages.text("ok")).doClick();return;
                     }
                     if(stage.get()==4 && registry.find(raw)==null){
                         if(forgotten.get()!=1)throw new AssertionError("tombstone callback missing");
                         host.setText(raw);stage.set(5);SwingUtilities.invokeLater(()->((JButton)TofuFlowTest.named(dialog,"connectButton")).doClick());return;
                     }
                     if(stage.get()==5){
-                        JDialog p=TofuFlowTest.popup("Новый сертификат iLO");if(p==null)return;
-                        stage.set(6);TofuFlowTest.button(p,"Отмена").doClick();return;
+                        JDialog p=TofuFlowTest.popup(Messages.text("first.title"));if(p==null)return;
+                        stage.set(6);TofuFlowTest.button(p,Messages.text("cancel")).doClick();return;
                     }
                     if(stage.get()==6 && ((JButton)TofuFlowTest.named(dialog,"connectButton")).isEnabled()){
                         if(registry.find(raw)!=null||observed.get()!=2)throw new AssertionError("deleted trust resurrected or unexpected observation");

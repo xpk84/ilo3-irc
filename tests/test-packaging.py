@@ -240,11 +240,17 @@ class Packaging(unittest.TestCase):
         bundled = {p.relative_to(classes) for p in classes.rglob('*.class')}
         self.assertEqual(built, bundled)
         self.assertTrue(bundled)
+        self.assertTrue({Path('Messages.class'), Path('LauncherMessages.class'),
+                         Path('LauncherMessages_ru.class')} <= bundled)
         self.repo.rename(self.repo.with_name('real checkout hidden'))
         result = self.run_script(str(launcher), '--check',
                                  env=dict(self.env, PATH='/usr/bin:/bin:/usr/sbin:/sbin'))
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertIn('Classes OK', result.stdout)
+        for language in ('en', 'ru', 'auto'):
+            result = self.run_script(str(launcher), '--language', language, '--version')
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertIn('ilo3-irc 1.2.0', result.stdout)
 
     def test_fresh_check_builds_all_sources_without_starting_app(self):
         self.assertFalse((self.repo / 'build').exists())

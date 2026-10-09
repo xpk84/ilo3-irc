@@ -85,12 +85,33 @@ cd ilo3-irc
 ./ilo3-irc.sh 10.0.0.42
 ```
 
+### Launcher language
+
+The connection window and certificate/trust dialogs support English and Russian.
+The Java/system display locale selects Russian for `ru` locales; all other
+locales fall back to English. To override it for one launch, put `--language`
+before the address or other Java launcher option:
+
+```bash
+./ilo3-irc.sh --language en
+./ilo3-irc.sh --language ru 10.0.0.42
+./ilo3-irc.sh --language auto
+# Installed app:
+open -a "iLO 3-4 Console" --args --language en
+```
+
+The override is not saved and does not change the JVM's global locale or the
+downloaded HP applet's language. Low-level diagnostic messages and command-line
+help remain English. Unsupported explicit language values are rejected.
+Translations are Java `ListResourceBundle` classes in `src/LauncherMessages*.java`,
+so source builds and standalone app bundles include them automatically on Java 8.
+
 The runner compiles all Java source files. To build manually:
 
 ```bash
 JDK8="/Library/Java/JavaVirtualMachines/zulu-8.jdk/Contents/Home"
 mkdir -p build
-"$JDK8/bin/javac" -d build src/*.java
+"$JDK8/bin/javac" -encoding UTF-8 -d build src/*.java
 "$JDK8/bin/java" -cp build ILO3IRC
 ```
 

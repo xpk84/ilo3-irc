@@ -37,6 +37,11 @@ python3 tests/test-packaging.py -v
   (including a hostname covered by the same certificate SAN); bounded response;
   legacy-only endpoint refused without opt-in, accepted with it; SSLv3 disabled.
 - Main: escaped credential JSON, runtime guards, headless help/version/check/error.
+- Launcher language: English/Russian key and placeholder parity, display-locale
+  selection, English fallback independent of the JVM default, explicit
+  `--language en|ru|auto` validation, and localized startup error wrappers.
+  TOFU UI workflows run in both languages, including safe approval/replacement/
+  removal defaults and rename accept/cancel. HP applet localization is unchanged.
 - Packaging: clean build, runtime/compiler validation, standalone bundle after
   checkout rename, class integrity, existing-target refusal, original icon.
 

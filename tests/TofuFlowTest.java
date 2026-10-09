@@ -30,10 +30,11 @@ public final class TofuFlowTest {
                 if(System.currentTimeMillis()>deadline)throw new AssertionError("UI scenario timed out at "+stage.get());
                 if(stage.get()==0){stage.set(1);((JButton)named(d,"connectButton")).doClick();return;}
                 if(stage.get()==1){
-                    JDialog p=popup(changed?"Сертификат изменился":"Новый сертификат iLO");
+                    JDialog p=popup(Messages.text(changed?"changed.title":"first.title"));
                     if(p==null)return;
                     stage.set(2);
-                    JButton choice=button(p,changed?"OK":accept?"Принять и запомнить":"Отмена");
+                    if(!changed)check(Messages.text("cancel").equals(TofuLayoutTest.find(p,JOptionPane.class).getInitialValue()),"first-use approval defaults to cancel");
+                    JButton choice=button(p,Messages.text(changed?"ok":accept?"accept":"cancel"));
                     if(choice==null && changed){p.dispatchEvent(new java.awt.event.WindowEvent(p,java.awt.event.WindowEvent.WINDOW_CLOSING));}
                     else {if(choice==null)throw new AssertionError("Missing confirmation action");choice.doClick();}
                     return;
@@ -44,7 +45,7 @@ public final class TofuFlowTest {
                     check(changed? saved.fingerprint.equals(A):accept?saved!=null:saved==null,"registry reflects explicit decision only");
                     JTable table=(JTable)named(d,"controllersTable");
                     check(table.getRowCount()==(accept||changed?1:0),"registry table refreshed");
-                    if(changed)check(table.getValueAt(0,2).toString().contains("ИЗМЕНИЛСЯ"),"changed certificate flagged in table");
+                    if(changed)check(table.getValueAt(0,2).equals(Messages.text("trust.changed")),"changed certificate flagged in table");
                     timer.stop();((JButton)named(d,"cancelButton")).doClick();
                 }
             }catch(Throwable e){failure.set(e);timer.stop();d.dispose();}});
@@ -62,7 +63,7 @@ public final class TofuFlowTest {
             timer.addActionListener(e->{try{
                 if(System.currentTimeMillis()>deadline)throw new AssertionError("Known controller timed out");
                 if(phase.getAndIncrement()==0){((JButton)named(d,"connectButton")).doClick();return;}
-                check(popup("Новый сертификат iLO")==null,"known matching controller never asks first-use approval");
+                check(popup(Messages.text("first.title"))==null,"known matching controller never asks first-use approval");
                 if(((JButton)named(d,"connectButton")).isEnabled()){timer.stop();((JButton)named(d,"cancelButton")).doClick();}
             }catch(Throwable x){failure.set(x);timer.stop();d.dispose();}});
             timer.start();d.setVisible(true);timer.stop();
@@ -84,8 +85,8 @@ public final class TofuFlowTest {
             timer.addActionListener(event->{try{
                 if(System.currentTimeMillis()>deadline)throw new AssertionError("replacement ignored selected TLS or timed out at "+stage.get());
                 if(stage.get()==0){stage.set(1);SwingUtilities.invokeLater(()->((JButton)named(d,"certificateDetailsButton")).doClick());return;}
-                if(stage.get()==1){JDialog p=popup("Сохранённый сертификат");if(p==null)return;stage.set(2);SwingUtilities.invokeLater(()->button(p,"Заменить сертификат…").doClick());return;}
-                if(stage.get()==2){JDialog p=popup("Подтвердите замену доверия");if(p==null)return;stage.set(3);SwingUtilities.invokeLater(()->button(p,"Заменить сохранённый сертификат").doClick());return;}
+                if(stage.get()==1){JDialog p=popup(Messages.text("certificate.title"));if(p==null)return;stage.set(2);SwingUtilities.invokeLater(()->button(p,Messages.text("replace")).doClick());return;}
+                if(stage.get()==2){JDialog p=popup(Messages.text("replacement.title"));if(p==null)return;check(Messages.text("cancel").equals(TofuLayoutTest.find(p,JOptionPane.class).getInitialValue()),"replacement defaults to cancel");stage.set(3);SwingUtilities.invokeLater(()->button(p,Messages.text("replacement.accept")).doClick());return;}
                 if(stage.get()==3 && ((JButton)named(d,"connectButton")).isEnabled()){
                     KnownControllers.Entry saved=registry.find("synthetic.invalid");
                     check(saved.fingerprint.equals(B)&&saved.legacyTls,"explicit replacement persists selected TLS and new pin");
@@ -100,8 +101,43 @@ public final class TofuFlowTest {
     public static void main(String[] args) throws Exception {
         Thread watchdog=new Thread(()->{try{Thread.sleep(30000);}catch(Exception e){}System.err.println("FAIL UI watchdog");System.exit(2);});watchdog.setDaemon(true);watchdog.start();
         KnownControllers registry=new KnownControllers(Paths.get(args[0],"registry","known.properties"));
-        scenario(registry,A,false,false);scenario(registry,A,true,false);known(registry);scenario(registry,B,false,true);replaceWithSelectedTls(registry);
+        scenario(registry,A,false,false);scenario(registry,A,true,false);known(registry);scenario(registry,B,false,true);replaceWithSelectedTls(registry);rename(registry);
         check(!new String(Files.readAllBytes(Paths.get(args[0],"registry","known.properties")),"ISO-8859-1").contains("password"),"registry contains no password field");
         System.out.println("TOFU UI FLOW TESTS: "+passed+" PASS");System.exit(0);
+    }
+    static void rename(KnownControllers registry) throws Exception {
+        AtomicReference<Throwable> failure=new AtomicReference<>();
+        SwingUtilities.invokeAndWait(()->{try{
+            ConnectionDialog d=new ConnectionDialog(registry,"",(h,l)->cert(B));
+            ((JTable)named(d,"controllersTable")).setRowSelectionInterval(0,0);
+            AtomicInteger stage=new AtomicInteger();long deadline=System.currentTimeMillis()+5000;
+            Timer timer=new Timer(80,null);
+            timer.addActionListener(event->{try{
+                if(System.currentTimeMillis()>deadline)throw new AssertionError("rename timed out at "+stage.get());
+                if(stage.get()==0){stage.set(1);SwingUtilities.invokeLater(()->((JButton)named(d,"renameControllerButton")).doClick());return;}
+                if(stage.get()==1){
+                    JDialog p=popup(Messages.text("rename"));if(p==null)return;
+                    JTextField field=TofuLayoutTest.find(p,JTextField.class);
+                    check(field.getText().equals("synthetic.invalid"),"rename initially shows current alias");
+                    field.setText("Test alias");stage.set(2);button(p,Messages.text("ok")).doClick();return;
+                }
+                if(stage.get()==2){
+                    check(registry.find("synthetic.invalid").name.equals("Test alias"),"localized rename saves entered alias");
+                    ((JTable)named(d,"controllersTable")).setRowSelectionInterval(0,0);
+                    stage.set(3);SwingUtilities.invokeLater(()->((JButton)named(d,"renameControllerButton")).doClick());return;
+                }
+                if(stage.get()==3){
+                    JDialog p=popup(Messages.text("rename"));if(p==null)return;
+                    TofuLayoutTest.find(p,JTextField.class).setText("Do not save");
+                    stage.set(4);button(p,Messages.text("cancel")).doClick();return;
+                }
+                if(stage.get()==4){
+                    check(registry.find("synthetic.invalid").name.equals("Test alias"),"localized rename cancel preserves alias");
+                    timer.stop();d.dispose();
+                }
+            }catch(Throwable e){failure.set(e);timer.stop();for(Window w:Window.getWindows())if(w instanceof JDialog)w.dispose();}});
+            timer.start();d.setVisible(true);timer.stop();
+        }catch(Throwable e){failure.set(e);}});
+        if(failure.get()!=null)throw new AssertionError(failure.get());
     }
 }

@@ -22,8 +22,13 @@ public final class ILO3IRC {
 
     public static void main(String[] args) {
         try {
+            if(args.length>0 && "--language".equals(args[0])) {
+                if(args.length<2)throw new IllegalArgumentException("Usage: --language en|ru|auto [HOST|OPTION]");
+                Messages.configure(args[1]);
+                args=Arrays.copyOfRange(args,2,args.length);
+            }
             if (args.length==1 && ("--help".equals(args[0]) || "-h".equals(args[0]))) {
-                System.out.println("Usage: ilo3-irc.sh [HOST]\n  --check: validate runtime/build (no GUI/network)\n  --version\n  --tls-check HOST SHA256 [--legacy-tls]: verify pinned HTTPS without login\nFirst connection asks to accept and remember the certificate (TOFU); an independently verified fingerprint is optional.");
+                System.out.println("Usage: ilo3-irc.sh [--language en|ru|auto] [HOST]\n  --check: validate runtime/build (no GUI/network)\n  --version\n  --tls-check HOST SHA256 [--legacy-tls]: verify pinned HTTPS without login\nFirst connection asks to accept and remember the certificate (TOFU); an independently verified fingerprint is optional.");
                 return;
             }
             if(args.length==1 && "--version".equals(args[0])) {System.out.println("ilo3-irc "+VERSION);return;}
@@ -46,10 +51,13 @@ public final class ILO3IRC {
         } catch(Exception ex) {
             String message=ex.getMessage();
             if(message==null || message.trim().isEmpty()) message=ex.getClass().getSimpleName();
-            final String error="Connection/startup failed: "+message;
+            final String error=Messages.text("startup.error",message);
             System.err.println("[ilo3-irc] "+error);
             if(!GraphicsEnvironment.isHeadless()) {
-                try { SwingUtilities.invokeAndWait(() -> JOptionPane.showMessageDialog(null,error,"iLO 3/4 Console",JOptionPane.ERROR_MESSAGE)); }
+                try { SwingUtilities.invokeAndWait(() -> {
+                    Object[] options={Messages.text("ok")};
+                    JOptionPane.showOptionDialog(null,error,"iLO 3/4 Console",JOptionPane.DEFAULT_OPTION,JOptionPane.ERROR_MESSAGE,null,options,options[0]);
+                }); }
                 catch(Exception ignored) { /* stderr remains available */ }
             }
             System.exit(2);

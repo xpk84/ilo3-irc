@@ -25,15 +25,15 @@ final class ConnectionDialog extends JDialog {
     private final Observer observer;
     private final JTextField host=new JTextField(28), user=new JTextField(28), expected=new JTextField(40);
     private final JPasswordField password=new JPasswordField(28);
-    private final JCheckBox legacy=new JCheckBox("Разрешить устаревший TLS 1.0/1.1 (для старых iLO)");
-    private final JLabel status=new JLabel("Новый сервер спросит подтверждение сертификата перед отправкой пароля.");
-    private final DefaultTableModel model=new DefaultTableModel(new String[]{"Имя","Адрес","Доверие","Последний вход"},0){
+    private final JCheckBox legacy=new JCheckBox(Messages.text("legacy"));
+    private final JLabel status=new JLabel(Messages.text("status.initial"));
+    private final DefaultTableModel model=new DefaultTableModel(new String[]{Messages.text("column.name"),Messages.text("column.address"),Messages.text("column.trust"),Messages.text("column.lastLogin")},0){
         private static final long serialVersionUID=1L;
         public boolean isCellEditable(int r,int c){return false;}
     };
     private final JTable table=new JTable(model);
-    private final JButton connect=new JButton("Подключиться"),details=new JButton("Сертификат…"),rename=new JButton("Переименовать…"),remove=new JButton("Удалить доверие…");
-    private final JButton cancel=new JButton("Отмена");
+    private final JButton connect=new JButton(Messages.text("connect")),details=new JButton(Messages.text("certificate")),rename=new JButton(Messages.text("rename")),remove=new JButton(Messages.text("remove"));
+    private final JButton cancel=new JButton(Messages.text("cancel"));
     private final Set<String> changed=new HashSet<>();
     private List<KnownControllers.Entry> rows=new ArrayList<>();
     private SwingWorker<SecureIlo.CertificateInfo,Void> worker;
@@ -70,11 +70,11 @@ final class ConnectionDialog extends JDialog {
         details.setName("certificateDetailsButton");rename.setName("renameControllerButton");remove.setName("removeTrustButton");
         host.setText(initial);
         JPanel form=new JPanel(new GridLayout(3,2,10,8));
-        form.add(new JLabel("Адрес iLO (IP/DNS и порт):"));form.add(host);
-        form.add(new JLabel("Логин:"));form.add(user);form.add(new JLabel("Пароль:"));form.add(password);
+        form.add(new JLabel(Messages.text("host")));form.add(host);
+        form.add(new JLabel(Messages.text("username")));form.add(user);form.add(new JLabel(Messages.text("password")));form.add(password);
         JPanel top=new JPanel();top.setLayout(new BoxLayout(top,BoxLayout.Y_AXIS));top.add(form);top.add(Box.createVerticalStrut(6));top.add(legacy);
-        JToggleButton advanced=new JToggleButton("Дополнительно: независимая сверка отпечатка");advanced.setName("advancedTrustButton");advanced.setAlignmentX(LEFT_ALIGNMENT);
-        JPanel advancedPanel=new JPanel(new BorderLayout(8,0));advancedPanel.add(new JLabel("Ожидаемый SHA-256 (необязательно):"),BorderLayout.WEST);advancedPanel.add(expected);advancedPanel.setVisible(false);
+        JToggleButton advanced=new JToggleButton(Messages.text("advanced"));advanced.setName("advancedTrustButton");advanced.setAlignmentX(LEFT_ALIGNMENT);
+        JPanel advancedPanel=new JPanel(new BorderLayout(8,0));advancedPanel.add(new JLabel(Messages.text("fingerprint")),BorderLayout.WEST);advancedPanel.add(expected);advancedPanel.setVisible(false);
         advanced.addActionListener(e -> {advancedPanel.setVisible(advanced.isSelected());pack();});
         top.add(advanced);top.add(advancedPanel);
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);table.setFillsViewportHeight(true);table.setRowHeight(25);
@@ -93,7 +93,7 @@ final class ConnectionDialog extends JDialog {
             }
         });
         JScrollPane scroll=new JScrollPane(table);scroll.setPreferredSize(new Dimension(800,160));
-        JPanel registryPanel=new JPanel(new BorderLayout(0,6));registryPanel.setBorder(BorderFactory.createTitledBorder("Известные серверы — пароли не сохраняются"));registryPanel.add(scroll);
+        JPanel registryPanel=new JPanel(new BorderLayout(0,6));registryPanel.setBorder(BorderFactory.createTitledBorder(Messages.text("registry")));registryPanel.add(scroll);
         JPanel actions=new JPanel(new FlowLayout(FlowLayout.LEFT));actions.add(details);actions.add(rename);actions.add(remove);registryPanel.add(actions,BorderLayout.SOUTH);
         JPanel bottom=new JPanel(new BorderLayout(0,8));bottom.add(status,BorderLayout.NORTH);
         JPanel buttons=new JPanel(new FlowLayout(FlowLayout.RIGHT));buttons.add(cancel);buttons.add(connect);bottom.add(buttons,BorderLayout.SOUTH);
@@ -116,12 +116,12 @@ final class ConnectionDialog extends JDialog {
     }
     private void refresh() throws IOException {
         rows=registry.list();model.setRowCount(0);
-        for(KnownControllers.Entry row:rows)model.addRow(new Object[]{row.name,row.authority,changed.contains(row.authority)?"СЕРТИФИКАТ ИЗМЕНИЛСЯ":"Сертификат сохранён",date(row.lastConnected)});
+        for(KnownControllers.Entry row:rows)model.addRow(new Object[]{row.name,row.authority,Messages.text(changed.contains(row.authority)?"trust.changed":"trust.saved"),date(row.lastConnected)});
     }
     private KnownControllers.Entry selected(){int i=table.getSelectedRow();return i<0||i>=rows.size()?null:rows.get(i);}
-    private static String date(long t){return t<=0?"—":DateFormat.getDateTimeInstance(DateFormat.SHORT,DateFormat.SHORT).format(new Date(t));}
+    private static String date(long t){return t<=0?"—":DateFormat.getDateTimeInstance(DateFormat.SHORT,DateFormat.SHORT,Messages.locale()).format(new Date(t));}
     private static String describe(String authority,SecureIlo.CertificateInfo cert){
-        return "Сервер: "+authority+"\nSHA-256: "+TrustPolicy.normalize(cert.fingerprint)+"\n\nСубъект: "+cert.subject+"\nИздатель: "+cert.issuer+"\nДействителен с: "+date(cert.notBefore)+"\nДо: "+date(cert.notAfter);
+        return Messages.text("certificate.description",authority,TrustPolicy.normalize(cert.fingerprint),cert.subject,cert.issuer,date(cert.notBefore),date(cert.notAfter));
     }
     private static JScrollPane text(String value){
         JTextArea area=new JTextArea(value,13,68);area.setEditable(false);area.setLineWrap(true);area.setWrapStyleWord(true);area.setCaretPosition(0);return new JScrollPane(area);
@@ -129,16 +129,17 @@ final class ConnectionDialog extends JDialog {
     private void error(Exception failure){
         Throwable cause=failure instanceof ExecutionException && failure.getCause()!=null?failure.getCause():failure;
         String message=cause.getMessage()==null?cause.getClass().getSimpleName():cause.getMessage();
-        JOptionPane.showMessageDialog(this,text(message),"Подключение не выполнено",JOptionPane.ERROR_MESSAGE);
-        status.setText("Не подключено. Проверьте адрес, маршрут и настройку устаревшего TLS.");
+        notice(message,"error.title");
+        status.setText(Messages.text("status.error"));
+    }
+    private void notice(String message,String title){
+        Object[] options={Messages.text("ok")};
+        JOptionPane.showOptionDialog(this,text(message),Messages.text(title),JOptionPane.DEFAULT_OPTION,JOptionPane.ERROR_MESSAGE,null,options,options[0]);
     }
     private boolean acceptFirst(String authority,SecureIlo.CertificateInfo cert){
-        String warning="Первое подключение: подлинность сервера ещё не подтверждена.\n"
-                +"Принятие запомнит этот сертификат и обнаружит его подмену при следующих подключениях.\n"
-                +"Перехват уже первого соединения этим не исключается; при сомнении отмените и сверьте отпечаток отдельно.\n"
-                +"Логин/пароль ещё не отправлены; Java-код не скачан.\n\n"+describe(authority,cert);
-        Object[] choices={"Принять и запомнить","Отмена"};
-        return JOptionPane.showOptionDialog(this,text(warning),"Новый сертификат iLO",JOptionPane.DEFAULT_OPTION,JOptionPane.WARNING_MESSAGE,null,choices,choices[1])==0;
+        String warning=Messages.text("first.warning",describe(authority,cert));
+        Object[] choices={Messages.text("accept"),Messages.text("cancel")};
+        return JOptionPane.showOptionDialog(this,text(warning),Messages.text("first.title"),JOptionPane.DEFAULT_OPTION,JOptionPane.WARNING_MESSAGE,null,choices,choices[1])==0;
     }
 
     private void beginConnection(){
@@ -149,7 +150,7 @@ final class ConnectionDialog extends JDialog {
         catch(Exception ex){error(ex);return;}
         final String username=user.getText().trim(),optional=expected.getText().trim();
         final char[] secret=password.getPassword();final boolean legacyTls=legacy.isSelected();
-        busy(true);status.setText("Получаю сертификат: только TLS-рукопожатие, без отправки пароля…");
+        busy(true);status.setText(Messages.text("status.observing"));
         worker=new SwingWorker<SecureIlo.CertificateInfo,Void>(){
             protected SecureIlo.CertificateInfo doInBackground() throws Exception{
                 history.migrate(registry,rawHost);
@@ -164,16 +165,16 @@ final class ConnectionDialog extends JDialog {
                     String pin=TrustPolicy.authorize(saved==null?null:saved.fingerprint,cert.fingerprint,optional,() -> acceptFirst(authority,cert));
                     if(saved==null)registry.accept(authority,authority,pin,cert.subject,cert.issuer,cert.notBefore,cert.notAfter,legacyTls,System.currentTimeMillis());
                     KnownControllers.Entry current=registry.find(authority);
-                    if(current==null||!current.fingerprint.equals(pin))throw new IOException("Доверие изменено другим окном. Подключитесь заново.");
+                    if(current==null||!current.fingerprint.equals(pin))throw new IOException(Messages.text("trust.concurrent"));
                     changed.remove(authority);refresh();
-                    if(username.isEmpty()||secret.length==0){status.setText("Сертификат сохранён/проверен. Введите логин и пароль.");return;}
+                    if(username.isEmpty()||secret.length==0){status.setText(Messages.text("status.credentials"));return;}
                     result=new Request(authority,username,secret,pin,legacyTls);handedOff=true;password.setText("");dispose();
-                }catch(TrustPolicy.Declined ex){password.setText("");status.setText("Сертификат не принят. Логин и пароль не отправлены.");}
+                }catch(TrustPolicy.Declined ex){password.setText("");status.setText(Messages.text("status.declined"));}
                 catch(TrustPolicy.Changed ex){
                     changed.add(authority);password.setText("");
                     try{refresh();}catch(IOException ioe){error(ioe);}
-                    JOptionPane.showMessageDialog(ConnectionDialog.this,text("Подключение заблокировано. Пароль не отправлен.\n\nСервер: "+authority+"\nСохранённый SHA-256: "+ex.previous+"\nПолученный SHA-256: "+ex.current+"\n\nПроверьте причину смены. Замена доступна отдельно: выберите сервер → Сертификат… → Заменить сертификат…"),"Сертификат изменился",JOptionPane.ERROR_MESSAGE);
-                    status.setText("Сертификат изменился — подключение запрещено до явного решения.");
+                    notice(Messages.text("changed.warning",authority,ex.previous,ex.current),"changed.title");
+                    status.setText(Messages.text("status.changed"));
                 }catch(Exception ex){password.setText("");error(ex);}
                 finally{if(!handedOff)Arrays.fill(secret,'\0');busy(false);}
             }
@@ -182,39 +183,44 @@ final class ConnectionDialog extends JDialog {
 
     private void rename(){
         KnownControllers.Entry e=selected();if(e==null)return;
-        String name=JOptionPane.showInputDialog(this,"Имя сервера:",e.name);
+        JOptionPane pane=new JOptionPane(Messages.text("rename.prompt"),JOptionPane.QUESTION_MESSAGE,JOptionPane.OK_CANCEL_OPTION,null,new Object[]{Messages.text("ok"),Messages.text("cancel")},Messages.text("ok"));
+        pane.setWantsInput(true);pane.setInitialSelectionValue(e.name);
+        JDialog dialog=pane.createDialog(this,Messages.text("rename"));dialog.setVisible(true);dialog.dispose();
+        Object input=pane.getInputValue();
+        String name=Messages.text("ok").equals(pane.getValue()) && input instanceof String ? (String)input : null;
         if(name!=null)try{registry.rename(e.authority,name);refresh();}catch(Exception ex){error(ex);}
     }
     private void remove(){
         KnownControllers.Entry e=selected();if(e==null)return;
-        if(JOptionPane.showConfirmDialog(this,text("Удалить доверие к "+e.authority+"?\nСледующее подключение снова потребует подтверждения сертификата."),"Удалить доверие",JOptionPane.OK_CANCEL_OPTION,JOptionPane.WARNING_MESSAGE)!=JOptionPane.OK_OPTION)return;
+        Object[] choices={Messages.text("ok"),Messages.text("cancel")};
+        if(JOptionPane.showOptionDialog(this,text(Messages.text("remove.warning",e.authority)),Messages.text("remove.title"),JOptionPane.DEFAULT_OPTION,JOptionPane.WARNING_MESSAGE,null,choices,choices[1])!=0)return;
         try{history.forget(e.authority);registry.remove(e.authority);changed.remove(e.authority);refresh();}catch(Exception ex){error(ex);}
     }
     private void showDetails(){
         KnownControllers.Entry e=selected();if(e==null)return;
         SecureIlo.CertificateInfo cert=new SecureIlo.CertificateInfo(e.fingerprint,e.subject,e.issuer,e.notBefore,e.notAfter);
-        Object[] options={"Закрыть","Заменить сертификат…"};
+        Object[] options={Messages.text("close"),Messages.text("replace")};
         boolean selectedTls=e.legacyTls;
         try{if(e.authority.equals(KnownControllers.canonicalAuthority(host.getText().trim())))selectedTls=legacy.isSelected();}catch(IllegalArgumentException ignored){}
-        JCheckBox replacementTls=new JCheckBox("Разрешить устаревший TLS 1.0/1.1 для этого сервера",selectedTls);
+        JCheckBox replacementTls=new JCheckBox(Messages.text("replacement.legacy"),selectedTls);
         replacementTls.setName("replacementLegacyTlsCheck");
-        JPanel panel=new JPanel(new BorderLayout(0,8));panel.add(text(describe(e.authority,cert)+"\n\nПринят: "+date(e.acceptedAt)+"\nПоследний успешный вход: "+date(e.lastConnected)));panel.add(replacementTls,BorderLayout.SOUTH);
-        int choice=JOptionPane.showOptionDialog(this,panel,"Сохранённый сертификат",JOptionPane.DEFAULT_OPTION,JOptionPane.INFORMATION_MESSAGE,null,options,options[0]);
+        JPanel panel=new JPanel(new BorderLayout(0,8));panel.add(text(describe(e.authority,cert)+Messages.text("certificate.history",date(e.acceptedAt),date(e.lastConnected))));panel.add(replacementTls,BorderLayout.SOUTH);
+        int choice=JOptionPane.showOptionDialog(this,panel,Messages.text("certificate.title"),JOptionPane.DEFAULT_OPTION,JOptionPane.INFORMATION_MESSAGE,null,options,options[0]);
         if(choice==1)replaceCertificate(e,replacementTls.isSelected());
     }
     private void replaceCertificate(KnownControllers.Entry previous,boolean replacementLegacyTls){
-        password.setText("");busy(true);status.setText("Получаю новый сертификат для отдельной замены доверия…");
+        password.setText("");busy(true);status.setText(Messages.text("status.replacing"));
         worker=new SwingWorker<SecureIlo.CertificateInfo,Void>(){
             protected SecureIlo.CertificateInfo doInBackground() throws Exception{return observer.observe(previous.authority,replacementLegacyTls);}
             protected void done(){try{
                 if(!isDisplayable()||isCancelled())return;
                 SecureIlo.CertificateInfo cert=get();String pin=TrustPolicy.normalize(cert.fingerprint);
-                if(previous.fingerprint.equals(pin)){status.setText("Сертификат совпадает с сохранённым — замена не нужна.");return;}
-                String warning="Это изменение доверия, НЕ продолжение подключения.\nУбедитесь, что сертификат изменён вами/администратором, а не посредником.\n\nСтарый SHA-256: "+previous.fingerprint+"\n\n"+describe(previous.authority,cert)+"\n\nПароль не отправляется. Для подключения затем нажмите «Подключиться».";
-                Object[] choices={"Заменить сохранённый сертификат","Отмена"};
-                if(JOptionPane.showOptionDialog(ConnectionDialog.this,text(warning),"Подтвердите замену доверия",JOptionPane.DEFAULT_OPTION,JOptionPane.WARNING_MESSAGE,null,choices,choices[1])!=0)return;
+                if(previous.fingerprint.equals(pin)){status.setText(Messages.text("status.same"));return;}
+                String warning=Messages.text("replacement.warning",previous.fingerprint,describe(previous.authority,cert));
+                Object[] choices={Messages.text("replacement.accept"),Messages.text("cancel")};
+                if(JOptionPane.showOptionDialog(ConnectionDialog.this,text(warning),Messages.text("replacement.title"),JOptionPane.DEFAULT_OPTION,JOptionPane.WARNING_MESSAGE,null,choices,choices[1])!=0)return;
                 registry.replace(previous.authority,previous.fingerprint,pin,cert.subject,cert.issuer,cert.notBefore,cert.notAfter,replacementLegacyTls,System.currentTimeMillis());
-                changed.remove(previous.authority);refresh();status.setText("Сертификат заменён по вашему подтверждению. Подключение не выполнялось.");
+                changed.remove(previous.authority);refresh();status.setText(Messages.text("status.replaced"));
             }catch(Exception ex){error(ex);}finally{busy(false);}}
         };worker.execute();
     }
