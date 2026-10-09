@@ -44,6 +44,10 @@ python3 tests/test-packaging.py -v
   removal defaults and rename accept/cancel. HP applet localization is unchanged.
 - Packaging: clean build, runtime/compiler validation, standalone bundle after
   checkout rename, class integrity, existing-target refusal, original icon.
+  Bare and language-prefixed `--check` must both reject missing/corrupt packaged
+  classes and resources, including the Russian translation bundle. Verify all
+  `en|ru|auto` prefixes with the source checkout hidden and no compiler available;
+  invalid language/check arguments fail and non-check arguments reach Java intact.
 
 Gitleaks: full history, directory, staged diff and final commit. No suppressions.
 Reports belong outside the repository.

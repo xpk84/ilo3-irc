@@ -103,6 +103,9 @@ open -a "iLO 3-4 Console" --args --language en
 The override is not saved and does not change the JVM's global locale or the
 downloaded HP applet's language. Low-level diagnostic messages and command-line
 help remain English. Unsupported explicit language values are rejected.
+`--language en|ru|auto --check` uses the same shell diagnostic path as `--check`;
+in an installed bundle it verifies the packaged class/resource manifest without
+starting the GUI. Extra arguments to `--check` are rejected.
 Translations are Java `ListResourceBundle` classes in `src/LauncherMessages*.java`,
 so source builds and standalone app bundles include them automatically on Java 8.
 

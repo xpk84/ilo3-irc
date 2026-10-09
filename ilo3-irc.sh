@@ -6,8 +6,7 @@ source "$ROOT/scripts/runtime.sh"
 source "$ROOT/scripts/build.sh"
 ilo_find_runtime yes
 ilo_build "$ROOT"
-if [ "${1:-}" = --check ]; then
-    [ "$#" -eq 1 ] || { printf 'Usage: %s --check (no other arguments)\n' "$0" >&2; exit 2; }
+if ilo_check_requested "$@"; then
     ilo_print_runtime
     printf 'Classes OK: %s/build\n' "$ROOT"
     exit 0

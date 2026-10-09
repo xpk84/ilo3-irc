@@ -252,6 +252,80 @@ class Packaging(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout)
             self.assertIn('ilo3-irc 1.2.0', result.stdout)
 
+    def test_language_prefixed_check_rejects_missing_bundled_class(self):
+        shutil.rmtree(self.repo / 'src')
+        shutil.copytree(ROOT / 'src', self.repo / 'src')
+        launcher = str(self.install_candidate())
+        for language in ('en', 'ru', 'auto'):
+            result = self.run_script(launcher, '--language', language, '--check')
+            self.assertEqual(result.returncode, 0, result.stdout)
+        (self.app / 'Contents/Resources/classes/LauncherMessages_ru.class').unlink()
+        for language in ('en', 'ru', 'auto'):
+            with self.subTest(language=language):
+                result = self.run_script(launcher, '--language', language, '--check')
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn('Missing bundled file', result.stdout)
+                self.assertIn('LauncherMessages_ru.class', result.stdout)
+
+    def test_language_prefixed_check_validates_classes_and_resources(self):
+        resource = self.repo / 'resources/config/example.txt'
+        resource.parent.mkdir(parents=True)
+        resource.write_text('original resource payload')
+        launcher = str(self.install_candidate())
+        classes = self.app / 'Contents/Resources/classes'
+        runtime = self.base / 'runtime without compiler'
+        (runtime / 'bin').mkdir(parents=True)
+        (runtime / 'bin/java').symlink_to(JDK / 'bin/java')
+        self.repo.rename(self.repo.with_name('checkout hidden'))
+        env = dict(self.env, JDK8=str(runtime))
+        variants = [('--check',)] + [('--language', language, '--check')
+                                      for language in ('en', 'ru', 'auto')]
+        for flags in variants:
+            result = self.run_script(launcher, *flags, env=env)
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertIn('Classes OK', result.stdout)
+            self.assertNotIn('APP_STARTED', result.stdout)
+        for relative in ('Helper.class', 'config/example.txt'):
+            payload = classes / relative
+            original = payload.read_bytes()
+            for damage in ('missing', 'corrupt'):
+                if damage == 'missing':
+                    payload.unlink()
+                else:
+                    payload.write_bytes(b'corrupt payload')
+                try:
+                    for flags in variants:
+                        with self.subTest(file=relative, damage=damage, flags=flags):
+                            result = self.run_script(launcher, *flags, env=env)
+                            self.assertNotEqual(result.returncode, 0, result.stdout)
+                            expected = 'Missing bundled file' if damage == 'missing' else 'Corrupt bundled file'
+                            self.assertIn(expected, result.stdout)
+                            self.assertIn(relative, result.stdout)
+                            self.assertNotIn('APP_STARTED', result.stdout)
+                finally:
+                    payload.write_bytes(original)
+
+    def test_language_prefixed_check_source_and_argument_validation(self):
+        for launcher in ('ilo3-irc.sh', str(self.install_candidate())):
+            for language in ('en', 'ru', 'auto'):
+                result = self.run_script(launcher, '--language', language, '--check')
+                self.assertEqual(result.returncode, 0, result.stdout)
+                self.assertIn('Classes OK', result.stdout)
+                self.assertNotIn('APP_STARTED', result.stdout)
+                # Other invocations must keep the language prefix for Java.
+                result = self.run_script(launcher, '--language', language, '--version')
+                self.assertEqual(result.returncode, 0, result.stdout)
+                self.assertIn('APP_STARTED\nARG=--language\nARG=' + language + '\nARG=--version', result.stdout)
+            for flags in (('--language', 'fr', '--check'),
+                          ('--language', '', '--check'),
+                          ('--language', 'en', '--check', 'extra'),
+                          ('--check', 'extra')):
+                with self.subTest(launcher=launcher, flags=flags):
+                    result = self.run_script(launcher, *flags)
+                    self.assertEqual(result.returncode, 2, result.stdout)
+                    self.assertNotIn('APP_STARTED', result.stdout)
+                    self.assertNotIn('Classes OK', result.stdout)
+
     def test_fresh_check_builds_all_sources_without_starting_app(self):
         self.assertFalse((self.repo / 'build').exists())
         result = self.run_script('ilo3-irc.sh', '--check')

@@ -2,6 +2,24 @@
 # Shared source/app runtime selection. No Python, network or GUI dependencies.
 ilo_runtime_error() { printf 'Java 8 runtime error: %s\n' "$*" >&2; return 1; }
 
+# Recognize diagnostic mode without consuming the caller's application arguments.
+# Invalid check invocations exit here rather than falling through to Java's
+# runtime-only check, which cannot validate the packaged class manifest.
+ilo_check_requested() {
+    if [ "${1:-}" = --language ] && [ "${3:-}" = --check ]; then
+        case "${2:-}" in
+            en|ru|auto) shift 2 ;;
+            *) printf 'Unsupported language; use en, ru or auto.\n' >&2; exit 2 ;;
+        esac
+    fi
+    [ "${1:-}" = --check ] || return 1
+    [ "$#" -eq 1 ] || {
+        printf 'Usage: %s [--language en|ru|auto] --check (no other arguments)\n' "$0" >&2
+        exit 2
+    }
+    return 0
+}
+
 ilo_validate_arch() {
     local executable="$1" arches
     if [ "$(uname -s)" = Darwin ]; then

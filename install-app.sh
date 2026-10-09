@@ -44,8 +44,7 @@ CONTENTS="$(cd "$(dirname "$0")/.." && pwd)"
 RESOURCES="$CONTENTS/Resources"
 source "$RESOURCES/runtime.sh"
 ilo_find_runtime no
-if [ "${1:-}" = --check ]; then
-    [ "$#" -eq 1 ] || { printf 'Usage: %s --check (no other arguments)\n' "$0" >&2; exit 2; }
+if ilo_check_requested "$@"; then
     [ -s "$RESOURCES/classes/ILO3IRC.class" ] && [ -s "$RESOURCES/classes.cksum" ] || {
         printf 'Missing bundled classes or manifest.\n' >&2; exit 1;
     }
